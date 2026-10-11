@@ -1,0 +1,3009 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cave Hack</title>
+<meta name="description" content="Leave your cave and delve into the endless depths of the cavern.">
+<meta name="theme-color" content="#0d0f12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cave Hack">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #0d0f12;
+    --panel: #161a20;
+    --text: #c9d1d9;
+    --muted: #6e7681;
+    --wall: #d6c7a1;
+    --floor: #b8a57a;
+    --rat: #9ca3af;
+    --torch: #ff8a1f;
+    --player: #facc15;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+    /* keep clear of notches and rounded screen corners */
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    overscroll-behavior: none;            /* no pull-to-refresh or rubber-banding mid-game */
+    touch-action: manipulation;           /* no double-tap zoom */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  button { touch-action: manipulation; }
+  /* Tighter spacing on small screens so the map gets the room */
+  @media (max-width: 600px), (max-height: 760px) {
+    body { gap: 10px; }
+    body[data-screen="game"] h1 { display: none; }
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.15em; }
+  .hidden { display: none !important; }
+  /* Big title on the menu and story screens */
+  body:not([data-screen="game"]) h1 { font-size: 40px; letter-spacing: 0.2em; color: var(--torch); }
+  body:not([data-screen="game"]) { cursor: default; }
+  body[data-screen="intro"] { cursor: pointer; }
+  #menu { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .menu-art { width: 96px; height: 96px; margin-bottom: 8px; filter: drop-shadow(0 0 14px rgba(255, 138, 31, 0.35)); }
+  .menu-art svg { display: block; width: 100%; height: 100%; animation: bob 0.76s steps(1) infinite; }
+  @keyframes bob { 50% { transform: translateY(-8.33%); } }
+  .menu-btn {
+    min-width: 240px; padding: 12px 18px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--muted); border-radius: 8px;
+    font: inherit; font-size: 16px; text-align: left;
+    cursor: pointer;
+  }
+  .menu-btn:hover:not(:disabled), .menu-btn:focus-visible { border-color: var(--torch); }
+  .menu-btn:disabled { opacity: 0.4; cursor: default; }
+  .menu-btn kbd { margin-right: 10px; }
+  #intro {
+    max-width: 560px; text-align: center; line-height: 1.6;
+    font-size: 17px; cursor: pointer; user-select: none;
+  }
+  #intro .tap { color: var(--torch); margin-top: 28px; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  #map {
+    background: var(--panel);
+    padding: 12px;
+    border-radius: 8px;
+    line-height: 1.2em;
+    white-space: pre;
+    user-select: none;
+  }
+  /* Square cells so the circle looks round, not stretched */
+  #map span { display: inline-block; width: 1.2em; height: 1.2em; line-height: 1.2em; text-align: center; vertical-align: top; }
+  .wall { color: var(--wall); }
+  .floor { color: var(--floor); }
+  .rat { color: var(--rat); font-weight: 700; }
+  .item-sprite svg { display: block; width: 100%; height: 100%; }
+  /* Animated sprites (creatures, torches): two frames, one shown at a time */
+  .anim svg { display: block; width: 100%; height: 100%; }
+  #map[data-frame="0"] .anim .f1, #map[data-frame="1"] .anim .f0 { display: none; }
+  .torch-lit, .fire-lit { filter: drop-shadow(0 0 3px rgba(255, 138, 31, 0.8)); }
+  #map[data-frame="1"] .torch-lit, #map[data-frame="1"] .fire-lit { filter: drop-shadow(0 0 5px rgba(255, 170, 60, 0.9)); }
+  /* Still pictures (walls, doors) */
+  .sprite svg { display: block; width: 100%; height: 100%; }
+  /* Other cave men bob like you do, some on the off-beat */
+  .npc svg { display: block; width: 100%; height: 100%; }
+  #map[data-frame="1"] .npc:not(.alt) svg, #map[data-frame="0"] .npc.alt svg { transform: translateY(-8.33%); }
+  /* A door swinging open or shut: three frames shown one after another, once */
+  .door-swing { position: relative; }
+  .door-swing svg { position: absolute; inset: 0; animation: 0.3s steps(1, end) forwards; }
+  .door-swing svg:nth-child(1) { animation-name: door-f0; }
+  .door-swing svg:nth-child(2) { animation-name: door-f1; }
+  .door-swing svg:nth-child(3) { animation-name: door-f2; }
+  @keyframes door-f0 { 0% { opacity: 1; } 33.3% { opacity: 0; } 100% { opacity: 0; } }
+  @keyframes door-f1 { 0% { opacity: 0; } 33.3% { opacity: 1; } 66.6% { opacity: 0; } 100% { opacity: 0; } }
+  @keyframes door-f2 { 0% { opacity: 0; } 66.6% { opacity: 1; } 100% { opacity: 1; } }
+  #gameover {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: rgba(8, 9, 11, 0.82); text-align: center; padding: 16px;
+  }
+  #gameover h2 { margin: 0; font-size: 44px; letter-spacing: 0.2em; color: #e5484d; text-transform: uppercase; }
+  #victory {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: rgba(8, 9, 11, 0.88); text-align: center; padding: 16px;
+  }
+  #victory h2 { margin: 0; font-size: 44px; letter-spacing: 0.15em; color: var(--player); text-transform: uppercase; }
+  #victory p { margin: 0; font-size: 18px; }
+  #victory #victory-stats { font-size: 15px; color: var(--muted); }
+  #victory button {
+    padding: 10px 18px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--torch); border-radius: 8px; font: inherit; font-size: 15px; cursor: pointer;
+  }
+  #victory button kbd { margin-right: 8px; }
+  #gameover p { margin: 0; font-size: 16px; }
+  #gameover button {
+    padding: 10px 18px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--muted); border-radius: 8px; font: inherit; font-size: 15px; cursor: pointer;
+  }
+  #gameover button kbd { margin-right: 8px; }
+  #inventory { font-size: 14px; color: var(--muted); text-align: center; }
+  #inventory b { color: var(--text); font-weight: 600; }
+  /* Crafting menu: a panel floating over the map */
+  #craft-menu {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(440px, calc(100vw - 32px));
+    background: var(--panel); border: 1px solid var(--torch); border-radius: 10px;
+    padding: 16px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    display: flex; flex-direction: column; gap: 8px; z-index: 10;
+  }
+  #craft-menu h2 { margin: 0 0 4px; font-size: 16px; letter-spacing: 0.15em; color: var(--torch); text-align: center; text-transform: uppercase; }
+  .recipe {
+    display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center;
+    padding: 10px 12px; text-align: left; cursor: pointer;
+    background: var(--bg); color: var(--text); border: 1px solid #2c323b; border-radius: 8px; font: inherit;
+  }
+  .recipe:hover { border-color: var(--torch); }
+  .recipe kbd { grid-row: span 2; }
+  .recipe-name { font-weight: 700; font-size: 15px; }
+  .recipe-needs { font-size: 13px; }
+  .recipe.cant .recipe-name { color: var(--muted); }
+  .recipe .have { color: #7fc48a; }
+  .recipe .missing { color: #e5848a; }
+  .craft-note { margin: 4px 0 0; font-size: 13px; color: var(--muted); text-align: center; }
+  .recipe-close {
+    align-self: center; min-height: 38px; padding: 0 20px; cursor: pointer; font: inherit; font-size: 14px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--muted); border-radius: 8px;
+  }
+  .player svg { display: block; width: 100%; height: 100%; }
+  .player.torch-held { filter: drop-shadow(0 0 4px rgba(255, 138, 31, 0.8)); }
+  /* Bobbing: the cave man hops up one sprite pixel (1/12 of a tile) in time
+     with the creatures' animation frames */
+  #map[data-frame="1"] .player svg { transform: translateY(-8.33%); }
+  #status { color: var(--muted); font-size: 14px; text-align: center; line-height: 1.9; }
+  .hint { white-space: nowrap; margin: 0 6px; }
+  #message { color: var(--text); font-size: 15px; min-height: 1.2em; text-align: center; }
+  #stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px; font-size: 13px; }
+  .stat { display: flex; align-items: center; gap: 8px; }
+  .stat-name { color: var(--muted); width: 3.2em; text-align: right; }
+  .stat-val { min-width: 4.5em; color: var(--text); }
+  .stat-level { color: #8fb0f5; font-weight: 600; margin-left: -1.5em; }
+  .stat-num { color: var(--text); font-weight: 600; min-width: 1.5em; }
+  .bar { width: 110px; height: 10px; background: var(--panel); border: 1px solid #2c323b; border-radius: 5px; overflow: hidden; }
+  .fill { height: 100%; transition: width 0.15s; }
+  .fill.hp { background: #e5484d; }
+  .fill.food { background: #d9a441; }
+  .fill.food.starving { background: #6e7681; }
+  .fill.xp { background: #5b8def; }
+  #zoom { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
+  #zoom button {
+    width: 32px; height: 32px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--muted);
+    border-radius: 6px;
+    font: inherit; font-size: 18px;
+    cursor: pointer;
+  }
+  #zoom button:disabled { opacity: 0.35; cursor: default; }
+  #zoom-label { min-width: 70px; text-align: center; }
+  #zoom #controls-btn { width: auto; padding: 0 12px; font-size: 14px; }
+  #map { cursor: pointer; }
+
+  /* Buttons for answering the current question (Yes / No, choices, sleep amounts) */
+  #prompt-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  #prompt-buttons:empty { display: none; }
+  #prompt-buttons button {
+    min-height: 40px; padding: 0 14px; font: inherit; font-size: 14px; cursor: pointer;
+    background: var(--panel); color: var(--text); border: 1px solid var(--torch); border-radius: 8px;
+  }
+
+  /* On-screen controls: shown on touch screens, or when switched on with "Controls" */
+  #touch { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; }
+  body:not(.touch-ui) #touch { display: none; }
+  body.touch-ui #status, body.touch-ui #save-btn { display: none; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 6px; }
+  .actions { display: grid; grid-template-columns: repeat(4, 76px); grid-auto-rows: 46px; gap: 6px; }
+  .tbtn {
+    background: var(--panel); color: var(--text); border: 1px solid #2c323b; border-radius: 10px;
+    font: inherit; font-size: 13px; cursor: pointer; padding: 0;
+  }
+  .dpad .tbtn { font-size: 22px; }
+  .dpad .tbtn.use { font-size: 13px; color: var(--torch); border-color: var(--torch); }
+  .tbtn:active, .tbtn.held { background: #232a33; border-color: var(--torch); }
+  @media (max-width: 420px) {
+    .dpad { grid-template-columns: repeat(3, 46px); grid-auto-rows: 46px; }
+    .actions { grid-template-columns: repeat(4, 66px); grid-auto-rows: 42px; }
+  }
+  #zoom #save-btn { width: auto; padding: 0 12px; font-size: 14px; margin-left: 12px; }
+  kbd {
+    border: 1px solid var(--muted);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+  <h1>CAVE HACK</h1>
+
+  <div id="menu">
+    <div class="menu-art" id="menu-art"></div>
+    <button id="new-game" class="menu-btn"><kbd>N</kbd> Start New Game</button>
+    <button id="load-game" class="menu-btn"><kbd>P</kbd> Play Saved Game</button>
+  </div>
+
+  <div id="intro" class="hidden">
+    <p>You, Cave Dude, are getting quite bored with living in the same section of
+    the cave since you were born. Therefore you decide to leave the cave and delve
+    into the endless depths of the cavern.</p>
+    <p class="tap">Tap to play</p>
+  </div>
+
+  <div id="stats" class="game hidden">
+    <div class="stat"><span class="stat-name">HP</span><div class="bar"><div id="hp-fill" class="fill hp"></div></div><span id="hp-val" class="stat-val"></span></div>
+    <div class="stat"><span class="stat-name">Food</span><div class="bar"><div id="food-fill" class="fill food"></div></div><span id="food-val" class="stat-val"></span></div>
+    <div class="stat"><span class="stat-name">XP</span><div class="bar"><div id="xp-fill" class="fill xp"></div></div><span id="xp-val" class="stat-val"></span><span id="level-val" class="stat-level"></span></div>
+    <div class="stat"><span class="stat-name" title="Armor points: each one takes 1 off every hit">AP</span><span id="ap-val" class="stat-num"></span>
+      <span class="stat-name" title="Which level of the cavern you're on">Depth</span><span id="depth-val" class="stat-num"></span></div>
+  </div>
+  <div id="map" class="game hidden"></div>
+  <div id="message" class="game hidden">&nbsp;</div>
+  <div id="prompt-buttons" class="game hidden"></div>
+  <div id="inventory" class="game hidden"></div>
+  <div id="craft-menu" class="hidden"></div>
+  <div id="victory" class="hidden">
+    <div class="menu-art" id="victory-art"></div>
+    <h2>You escaped!</h2>
+    <p>You have escaped the cave, congrats!</p>
+    <p id="victory-stats"></p>
+    <button onclick="location.reload()"><kbd>Enter</kbd> Back to title</button>
+  </div>
+  <div id="gameover" class="hidden">
+    <h2>You died</h2>
+    <p id="death-cause"></p>
+    <button onclick="location.reload()"><kbd>Enter</kbd> Back to title</button>
+  </div>
+  <div id="status" class="game hidden">
+    <span class="hint"><kbd>W</kbd> north</span>
+    <span class="hint"><kbd>A</kbd> west</span>
+    <span class="hint"><kbd>S</kbd> south</span>
+    <span class="hint"><kbd>D</kbd> east</span>
+    <span class="hint"><kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</span>
+    <span class="hint"><kbd>I</kbd> interact</span>
+    <span class="hint"><kbd>G</kbd> pick up</span>
+    <span class="hint"><kbd>T</kbd> throw</span>
+    <span class="hint"><kbd>F</kbd> eat</span>
+    <span class="hint"><kbd>R</kbd> craft</span>
+    <span class="hint"><kbd>X</kbd> equip</span>
+    <span class="hint"><kbd>O</kbd> don</span>
+    <span class="hint"><kbd>B</kbd> shoot</span>
+  </div>
+  <div id="touch" class="game hidden">
+    <div class="dpad">
+      <button class="tbtn" data-key="q" data-repeat aria-label="Move northwest">&#8598;</button>
+      <button class="tbtn" data-key="w" data-repeat aria-label="Move north">&#8593;</button>
+      <button class="tbtn" data-key="e" data-repeat aria-label="Move northeast">&#8599;</button>
+      <button class="tbtn" data-key="a" data-repeat aria-label="Move west">&#8592;</button>
+      <button class="tbtn use" data-key="i" aria-label="Interact">Use</button>
+      <button class="tbtn" data-key="d" data-repeat aria-label="Move east">&#8594;</button>
+      <button class="tbtn" data-key="z" data-repeat aria-label="Move southwest">&#8601;</button>
+      <button class="tbtn" data-key="s" data-repeat aria-label="Move south">&#8595;</button>
+      <button class="tbtn" data-key="c" data-repeat aria-label="Move southeast">&#8600;</button>
+    </div>
+    <div class="actions">
+      <button class="tbtn" data-key="g">Pick up</button>
+      <button class="tbtn" data-key="t">Throw</button>
+      <button class="tbtn" data-key="f">Eat</button>
+      <button class="tbtn" data-key="r">Craft</button>
+      <button class="tbtn" data-key="x">Equip</button>
+      <button class="tbtn" data-key="o">Don</button>
+      <button class="tbtn" data-key="b">Shoot</button>
+      <button class="tbtn" data-action="save">Save</button>
+    </div>
+  </div>
+  <div id="zoom" class="game hidden">
+    <button id="zoom-out" title="Zoom out (-)">&minus;</button>
+    <span id="zoom-label"></span>
+    <button id="zoom-in" title="Zoom in (+)">+</button>
+    <button id="save-btn" title="Save (Ctrl+S)">Save</button>
+    <button id="controls-btn" title="Show or hide the on-screen controls">Controls</button>
+  </div>
+
+<script>
+  // Map: '#' = wall, '.' = floor, ' ' = solid rock (never shown)
+  const RADIUS = 20;               // circle room radius, including its wall
+  const PASSAGE_MIN = 8;           // passage length between rooms
+  const PASSAGE_MAX = 16;
+  const BLOB_R_MIN = 3;            // radius range of each circle/oval in a side room
+  const BLOB_R_MAX = 8;
+  const MARGIN = 100;              // space around the circle for passages and side rooms
+  const SIZE = (RADIUS + MARGIN) * 2 + 1;
+  const C = RADIUS + MARGIN;       // center index
+
+  const rand = (min, max) => min + Math.random() * (max - min);
+  const pickOne = list => list[Math.floor(Math.random() * list.length)];
+  const randInt = (min, max) => Math.floor(rand(min, max + 1));
+
+  // ---- The player: a little pixel-art cave man ----
+  // Each letter is one pixel (see CAVEMAN_COLORS); "." is see-through.
+  // He's drawn facing the way he last moved; "left" is "right" mirrored.
+  const CAVEMAN_POSES = {
+    down: [ // facing you
+      "...HHHHH....",
+      "..HHHHHHH...",
+      ".HHSSSSSHH..",
+      ".HSESSSESH..",
+      "..SSSSSSS...",
+      "..BBBBBBB...",
+      ".SBBBBBBBS..",
+      "S.FFFFFFF.S.",
+      "S.FDFFFDF...",
+      "..FFFDFFF...",
+      "...SS.SS....",
+      "..SSS.SSS...",
+    ],
+    up: [ // walking away: all hair, no face
+      "...HHHHH....",
+      "..HHHHHHH...",
+      ".HHHHHHHHH..",
+      ".HHHHHHHHH..",
+      "..HHHHHHH...",
+      "..SHHHHHS...",
+      ".SFFFFFFFS..",
+      "S.FFFFFFF.S.",
+      "S.FDFFFDF...",
+      "..FFFDFFF...",
+      "...SS.SS....",
+      "..SSS.SSS...",
+    ],
+    right: [ // side view, mid-stride
+      "...HHHHH....",
+      "..HHHHHHH...",
+      "..HHHSSSS...",
+      "..HHHSSES...",
+      "..HHSSSSSS..",
+      "...HSBBBB...",
+      "....BBBB....",
+      "...FFFFSSS..",
+      "...FDFFF....",
+      "...FFDFF....",
+      "....SS.S....",
+      "...SS..SS...",
+    ],
+  };
+  // Weapons are drawn over the pose, in the hand at the right-hand edge
+  const WEAPON_PIXELS = {
+    axe: [
+      "............",
+      "..........AA",
+      "..........AA",
+      "..........hA",
+      "..........h.",
+      "..........h.",
+      "..........h.",
+      "............",
+      "..........h.",
+      "............",
+      "............",
+      "............",
+    ],
+    spear: [
+      "..........A.",
+      "..........A.",
+      "..........h.",
+      "..........h.",
+      "..........h.",
+      "..........h.",
+      "..........h.",
+      "............",
+      "..........h.",
+      "..........h.",
+      "..........h.",
+      "............",
+    ],
+  };
+  const CAVEMAN_COLORS = {
+    H: "#4a2c14", // hair
+    S: "#e0a878", // skin
+    E: "#1b120a", // eyes
+    B: "#7a4a22", // beard
+    F: "#c08a44", // fur tunic
+    D: "#7d5326", // tunic spots
+    A: "#a7a29c", // stone (axe head, spear tip)
+    h: "#a8743f", // wooden handle
+  };
+  const spriteCache = new Map();
+  // facing: "down" | "up" | "left" | "right"; weapon: "axe" | "spear" | null
+  // Other cave men (NPCs) use the same drawings with different hair and furs
+  const NPC_LOOKS = [
+    { H: "#1f1f1f", B: "#2e2a26", F: "#9c7a5a", D: "#6b5038" }, // black hair, grey-brown furs
+    { H: "#8a3a1a", B: "#9a4a22", F: "#b8b090", D: "#8a8060" }, // red hair, pale furs
+    { H: "#d8d0c0", B: "#e2dccf", F: "#7a5a3a", D: "#5a4028" }, // white-haired elder
+  ];
+  // Lizard armor: the fur tunic becomes green scale mail (with a darker scale
+  // pattern) and the top of the head gets a lizard-skin hood
+  const ARMOR_COLORS = { a: "#5f9a40", s: "#2e5a1e", g: "#7cc35a" };
+  // A lit torch held in the off hand (the hand opposite the weapon). From the
+  // front and back his arm is raised: elbow out, forearm up, fist round the
+  // torch's handle. From the side it's held up behind him.
+  const OFFHAND_TORCH = {
+    front: { 0: { 0: "R" }, 1: { 0: "Y" }, 2: { 0: "O" }, 3: { 0: "t" },
+             4: { 0: "S" }, 5: { 0: "S" }, 6: { 0: "S" }, 7: { 0: "." }, 8: { 0: "." } },
+    side:  { 1: { 1: "R" }, 2: { 1: "Y" }, 3: { 1: "O" }, 4: { 1: "t" }, 5: { 1: "t" }, 6: { 1: "t" }, 7: { 1: "S" } },
+  };
+  const TORCH_HELD_COLORS = { R: "#e0481a", Y: "#ffd23f", O: "#ff8a1f", t: "#8a5a2b" };
+  function cavemanSprite(facing, weapon, look = null, armor = null, offhand = null) {
+    const cacheKey = facing + "/" + weapon + "/" + look + "/" + armor + "/" + offhand;
+    if (spriteCache.has(cacheKey)) return spriteCache.get(cacheKey);
+    const pose = CAVEMAN_POSES[facing === "left" ? "right" : facing];
+    const over = weapon && WEAPON_PIXELS[weapon];
+    const colors = { ...(look === null ? CAVEMAN_COLORS : { ...CAVEMAN_COLORS, ...NPC_LOOKS[look] }),
+                     ...ARMOR_COLORS, ...TORCH_HELD_COLORS };
+    const held = offhand === "torch" ? OFFHAND_TORCH[facing === "left" || facing === "right" ? "side" : "front"] : null;
+    let rects = "";
+    for (let y = 0; y < 12; y++)
+      for (let x = 0; x < 12; x++) {
+        let ch = over && over[y][x] !== "." ? over[y][x] : pose[y][x];
+        if (armor === "armor") {
+          if (ch === "F") ch = (x + y) % 3 === 0 ? "s" : "a";   // scales
+          else if (ch === "D") ch = "s";
+          else if (ch === "H" && y <= 1) ch = y === 0 ? "g" : "a"; // hood
+        }
+        if (held && held[y] && held[y][x]) ch = held[y][x];
+        if (!colors[ch]) continue;
+        const px = facing === "left" ? 11 - x : x; // mirror for walking left
+        rects += `<rect x="${px}" y="${y}" width="1" height="1" fill="${colors[ch]}"/>`;
+      }
+    const svg = `<svg viewBox="0 0 12 12" shape-rendering="crispEdges" aria-label="you">${rects}</svg>`;
+    spriteCache.set(cacheKey, svg);
+    return svg;
+  }
+
+  // ---- Creature sprites: two frames each, flipped between on a timer ----
+  // Drawn facing right; "left" is mirrored. One letter per pixel, "." is see-through.
+  const CREATURE_SPRITES = {
+    rat: {
+      colors: { G: "#8d8a86", g: "#b3afaa", E: "#111111", P: "#e8a0a8", T: "#c98a90" },
+      frames: [
+        [ // feet apart, tail down
+          "............",
+          "............",
+          "............",
+          "............",
+          "........PP..",
+          ".....GGGGG..",
+          "...GGgGGGEG.",
+          "..GGGGGGGGGP",
+          "T.GGGGGGGG..",
+          ".T..P...P...",
+          "............",
+          "............",
+        ],
+        [ // feet together, tail up
+          "............",
+          "............",
+          "............",
+          "............",
+          "........PP..",
+          ".....GGGGG..",
+          "T..GGgGGGEG.",
+          ".TGGGGGGGGGP",
+          "..GGGGGGGG..",
+          "....P.P.....",
+          "............",
+          "............",
+        ],
+      ],
+    },
+    lizard: {
+      colors: { K: "#6fbf4a", D: "#2e5a1e", E: "#111111", L: "#4f8a34", T: "#5aa03c", R: "#e5484d" },
+      frames: [ // walks upright on two legs, as tall as the cave man
+        [ // stride: legs apart, tail swung back
+          "......KKK...",
+          ".....KKEKK..",
+          ".....KKKKKK.",
+          "......KKK...",
+          ".....KKKK...",
+          "....KKDKKL..",
+          "....KDKKK.L.",
+          "....KKKDK...",
+          "...TKKKKK...",
+          "..T.KK.KK...",
+          ".T..K...K...",
+          "T..LL...LL..",
+        ],
+        [ // passing step: legs together, tail sways, claws up, tongue out
+          "......KKK...",
+          ".....KKEKK..",
+          ".....KKKKKKR",
+          "......KKK...",
+          ".....KKKK...",
+          "....KKDKK...",
+          "....KDKKKLL.",
+          "....KKKDK...",
+          "..TTKKKKK...",
+          ".T..KK.KK...",
+          "T....KKK....",
+          ".....LLLL...",
+        ],
+      ],
+    },
+  };
+  // The lizard king: a monitor lizard with a gold crown, darker scales and gold spots
+  CREATURE_SPRITES.lizardKing = {
+    colors: { K: "#3f7f3a", D: "#d9a441", E: "#111111", L: "#2f6a2a", T: "#3a7535", R: "#e5484d",
+              Y: "#ffd23f", r: "#e0481a" },
+    frames: CREATURE_SPRITES.lizard.frames.map(f => ["......YrY...", ...f.slice(1)]),
+  };
+  function creatureFrame(kind, facing, frame) {
+    const cacheKey = kind + "/" + facing + "/" + frame;
+    if (spriteCache.has(cacheKey)) return spriteCache.get(cacheKey);
+    const { colors, frames } = CREATURE_SPRITES[kind];
+    let rects = "";
+    frames[frame].forEach((row, y) => [...row].forEach((ch, x) => {
+      if (!colors[ch]) return;
+      const px = facing === "left" ? 11 - x : x;
+      rects += `<rect x="${px}" y="${y}" width="1" height="1" fill="${colors[ch]}"/>`;
+    }));
+    const svg = `<svg viewBox="0 0 12 12" shape-rendering="crispEdges">${rects}</svg>`;
+    spriteCache.set(cacheKey, svg);
+    return svg;
+  }
+  // Both frames go in the tile; CSS shows one or the other as #map's data-frame flips.
+  // `phase` swaps them so neighbours don't all move in step.
+  function creatureSprite(kind, facing, phase) {
+    const a = creatureFrame(kind, facing, phase % 2);
+    const b = creatureFrame(kind, facing, (phase + 1) % 2);
+    return a.replace("<svg", '<svg class="f0"') + b.replace("<svg", '<svg class="f1"');
+  }
+
+  // ---- Item sprites (items without one are drawn as their text character) ----
+  const ITEM_SPRITES = {
+    corpse: { // a bloody red pile in a pool of blood, with a bone poking out
+      colors: { R: "#b3202a", r: "#e04a4a", D: "#6e0f16", B: "#7a0c12", W: "#e8dcc8" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "........W...",
+        ".....RRW....",
+        "...RRrRRR...",
+        "..RrRRDRRR..",
+        ".RRDRRRrRDR.",
+        "BBRRRDRRRRBB",
+        ".BB.BBBBB.B.",
+      ],
+    },
+    key: { // a golden key
+      colors: { Y: "#ffd23f", y: "#c99a1e", k: "#6b4f10" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "..YYY.......",
+        ".Y...Y......",
+        ".Y...YYYYYYY",
+        ".Y...Yyy.y.y",
+        "..YYY..k.k.k",
+        "............",
+        "............",
+        "............",
+      ],
+    },
+    lizardCorpse: { // a heap of green scales and a limp tail, in a pool of blood
+      colors: { K: "#5f9a40", k: "#7cc35a", D: "#2e5a1e", B: "#7a0c12", R: "#b3202a" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "......KK....",
+        "....KkKDK...",
+        "...KDKKkKK..",
+        "..KKkKDKKKD.",
+        "BBKDKKRKKKKK",
+        ".BBRRBBBBB.K",
+        "..BB..BBB...",
+      ],
+    },
+    stone: { // a little pile of rocks
+      colors: { A: "#a7a29c", a: "#7f7a74", l: "#c9c4bd" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        ".....lA.....",
+        "....AAaA.lA.",
+        "...AlAAaAAaA",
+        "....aaa..aa.",
+        "............",
+      ],
+    },
+    stick: { // a twig lying on the floor
+      colors: { h: "#a8743f", k: "#6e4524" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "..........h.",
+        "........hh..",
+        "......kh.h..",
+        "....hh......",
+        "..hh........",
+        ".h..........",
+      ],
+    },
+    axe: { // a stone axe lying on its side
+      colors: { A: "#a7a29c", a: "#7f7a74", h: "#a8743f" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        ".........AA.",
+        "..hhhhhhhAa.",
+        ".........Aa.",
+        "............",
+        "............",
+      ],
+    },
+    spear: { // a stone spear lying on the floor
+      colors: { A: "#a7a29c", h: "#a8743f" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "..........A.",
+        "hhhhhhhhhAAA",
+        "..........A.",
+        "............",
+        "............",
+      ],
+    },
+  };
+
+  // Wall torches: two flickering flame frames, plus a snuffed (unlit) look
+  const TORCH_SPRITE = {
+    colors: { R: "#e0481a", F: "#ff8a1f", Y: "#ffd23f", W: "#fff3b0", h: "#8a5a2b", k: "#3a2a1c", b: "#5c3b1e" },
+    frames: [
+      [ // flame leaning left
+        "....R.......",
+        "....FR......",
+        "...FYF......",
+        "...FYYF.....",
+        "...FYWYF....",
+        "....FYYF....",
+        ".....hh.....",
+        ".....hh.....",
+        ".....hh.....",
+        ".....hh.....",
+        "....bbbb....",
+        "............",
+      ],
+      [ // flame leaning right, a little taller
+        ".......R....",
+        "......RF....",
+        "......FYF...",
+        ".....FYYF...",
+        "....FYWYF...",
+        "....FYYF....",
+        ".....hh.....",
+        ".....hh.....",
+        ".....hh.....",
+        ".....hh.....",
+        "....bbbb....",
+        "............",
+      ],
+    ],
+    out: [ // snuffed: charred top, no flame
+      "............",
+      "............",
+      "............",
+      "............",
+      ".....kk.....",
+      ".....kk.....",
+      ".....hh.....",
+      ".....hh.....",
+      ".....hh.....",
+      ".....hh.....",
+      "....bbbb....",
+      "............",
+    ],
+  };
+  // Builds (and caches) an SVG from one-letter-per-pixel rows
+  function pixelSvg(cacheKey, pixels, colors, extra = "") {
+    if (spriteCache.has(cacheKey)) return spriteCache.get(cacheKey);
+    let rects = "";
+    pixels.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (colors[ch]) rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${colors[ch]}"/>`;
+    }));
+    const svg = `<svg${extra} viewBox="0 0 12 12" shape-rendering="crispEdges">${rects}</svg>`;
+    spriteCache.set(cacheKey, svg);
+    return svg;
+  }
+  // Two animation frames in one tile (CSS shows one at a time); `phase` swaps
+  // them so neighbouring things don't all move in step
+  function twoFrames(name, frames, colors, phase) {
+    return pixelSvg(name + "/" + (phase % 2), frames[phase % 2], colors, ' class="f0"') +
+           pixelSvg(name + "/" + ((phase + 1) % 2), frames[(phase + 1) % 2], colors, ' class="f1"');
+  }
+  // A lit torch flickers; a snuffed one is just the charred stick
+  function torchSprite(lit, phase) {
+    const { colors, frames, out } = TORCH_SPRITE;
+    return lit ? twoFrames("torch", frames, colors, phase) : pixelSvg("torch/out", out, colors);
+  }
+
+  // Hut campfires: flames over crossed logs; snuffed, they just smoke
+  const FIRE_SPRITE = {
+    colors: { R: "#e0481a", F: "#ff8a1f", Y: "#ffd23f", W: "#fff3b0", L: "#6e4524", l: "#8a5a2b",
+              E: "#ff5a1f", e: "#5a2a1a", s: "#8a8580" },
+    frames: [
+      [
+        "............",
+        "......R.....",
+        ".....RF.....",
+        "....RFYR....",
+        "...RFYYFR...",
+        "...FYWWYF...",
+        "....YWWY....",
+        "..LLlYYlLL..",
+        ".LLLLLLLLLL.",
+        "..lLLEELLl..",
+        "...LL..LL...",
+        "............",
+      ],
+      [
+        ".....R......",
+        ".....FR.....",
+        "....RFFR....",
+        "....FYYFR...",
+        "...RFYWYF...",
+        "...FYWWYF...",
+        "....YWWY....",
+        "..LLlYYlLL..",
+        ".LLLLLLLLLL.",
+        "..lLEELLLl..",
+        "...LL..LL...",
+        "............",
+      ],
+    ],
+    out: [
+      "......s.....",
+      ".....s......",
+      "......s.....",
+      ".....s......",
+      "......s.....",
+      "............",
+      "............",
+      "..LLlLLlLL..",
+      ".LLLLLLLLLL.",
+      "..lLLeeLLl..",
+      "...LL..LL...",
+      "............",
+    ],
+  };
+  function fireSprite(lit, phase) {
+    const { colors, frames, out } = FIRE_SPRITE;
+    return lit ? twoFrames("fire", frames, colors, phase) : pixelSvg("fire/out", out, colors);
+  }
+
+  // Beds: a wooden cot with a pillow and a fur blanket whose highlights shift
+  const BED_SPRITE = {
+    colors: { b: "#6e4524", W: "#e8dcc8", w: "#c9bca4", f: "#c08a44", F: "#9a6a30", g: "#dba862" },
+    frames: [
+      [
+        "............",
+        "............",
+        ".bbbbbbbbbb.",
+        ".bWWwffgffb.",
+        ".bWWwfFfffb.",
+        ".bffgfffFfb.",
+        ".bfFffgfffb.",
+        ".bffffFffgb.",
+        ".bbbbbbbbbb.",
+        ".b........b.",
+        "............",
+        "............",
+      ],
+      [
+        "............",
+        "............",
+        ".bbbbbbbbbb.",
+        ".bWWwfgfffb.",
+        ".bWWwffFgfb.",
+        ".bfffgffffb.",
+        ".bgFfffgFfb.",
+        ".bfffgFfffb.",
+        ".bbbbbbbbbb.",
+        ".b........b.",
+        "............",
+        "............",
+      ],
+    ],
+  };
+  const bedSprite = phase => twoFrames("bed", BED_SPRITE.frames, BED_SPRITE.colors, phase);
+
+  // Hut walls: wooden planks, lying flat on the top and bottom walls ('H')
+  // and standing upright on the sides ('V')
+  const PLANK_COLORS = { P: "#8a5a2b", p: "#5c3b1e", l: "#a8743f", n: "#3a2a1c" };
+  const PLANKS = {
+    H: [
+      "pppppppppppp",
+      "PPPlPPPPPnlP",
+      "PPPPPPlPPPPP",
+      "PlPPPPPPPPlP",
+      "pppppppppppp",
+      "PPPPPlPPPPPP",
+      "PnPPPPPPPlPP",
+      "PPPPlPPPPPPP",
+      "pppppppppppp",
+      "PPPPPPPPlPnP",
+      "PPPlPPPPPPPP",
+      "PPPPPPPlPPPP",
+    ],
+    V: [
+      "pPnPpPPPpPlP",
+      "pPPPpPlPpPPP",
+      "plPPpPPPpPPP",
+      "pPPPpPPPpPPl",
+      "pPPlpPPPpPPP",
+      "pPPPplPPpPPP",
+      "pPPPpPPPplPP",
+      "pPlPpPPPpPPP",
+      "pPPPpPPlpPPP",
+      "pPPPpPPPpPlP",
+      "plPPpPPPpPPP",
+      "pPnPpPPPpPnP",
+    ],
+  };
+  // Where two hut walls meet at a corner there's a stout wooden post (a log end, seen from above)
+  PLANKS.post = [
+    "..pppppppp..",
+    ".pPPPPPPPPp.",
+    "pPPllllllPPp",
+    "pPlPPPPPPlPp",
+    "pPlPllllPlPp",
+    "pPlPlPPlPlPp",
+    "pPlPlPPlPlPp",
+    "pPlPllllPlPp",
+    "pPlPPPPPPlPp",
+    "pPPllllllPPp",
+    ".pPPPPPPPPp.",
+    "..pppppppp..",
+  ];
+  const plankSprite = kind => pixelSvg("planks/" + kind, PLANKS[kind], PLANK_COLORS);
+
+  // Cave rock walls: solid stone that joins up with the rock next to it. Sides
+  // that face open floor get a dark outline and a lit rim; outer corners are
+  // rounded off, and inside corners get a notch. `open` is a bitmask of open
+  // neighbours: N 1, E 2, S 4, W 8, and (diagonals) NE 16, SE 32, SW 64, NW 128.
+  const ROCK_COLORS = ["#8f8270", "#7d7161", "#a3957f"]; // base, dark speckle, light speckle
+  const ROCK_RIM = "#cdbd9f", ROCK_EDGE = "#3b342c";
+  function rockSprite(open, variant) {
+    const cacheKey = "rock/" + open + "/" + variant;
+    if (spriteCache.has(cacheKey)) return spriteCache.get(cacheKey);
+    const N = open & 1, E = open & 2, S = open & 4, W = open & 8;
+    let rects = "";
+    for (let y = 0; y < 12; y++)
+      for (let x = 0; x < 12; x++) {
+        // rounded outer corners: knock out the very corner where two open sides meet
+        const corner =
+          (N && W && x + y < 2) || (N && E && (11 - x) + y < 2) ||
+          (S && W && x + (11 - y) < 2) || (S && E && (11 - x) + (11 - y) < 2);
+        if (corner) continue;
+        let c;
+        // speckled stone texture (a little different on each variant)
+        const n = (x * 7 + y * 13 + variant * 5 + x * y) % 11;
+        c = n === 0 || n === 5 ? ROCK_COLORS[1] : n === 3 ? ROCK_COLORS[2] : ROCK_COLORS[0];
+        // lit rim one pixel in from each open side
+        if ((N && y === 1) || (S && y === 10) || (W && x === 1) || (E && x === 10)) c = ROCK_RIM;
+        // dark outline on the open edge itself (and where the rounded corner turns)
+        if ((N && y === 0) || (S && y === 11) || (W && x === 0) || (E && x === 11) ||
+            (N && W && x + y === 2) || (N && E && (11 - x) + y === 2) ||
+            (S && W && x + (11 - y) === 2) || (S && E && (11 - x) + (11 - y) === 2)) c = ROCK_EDGE;
+        // inside corners: a notch where only the diagonal neighbour is open
+        if ((open & 16 && x === 11 && y === 0) || (open & 32 && x === 11 && y === 11) ||
+            (open & 64 && x === 0 && y === 11) || (open & 128 && x === 0 && y === 0)) c = ROCK_EDGE;
+        rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
+      }
+    const svg = `<svg viewBox="0 0 12 12" shape-rendering="crispEdges">${rects}</svg>`;
+    spriteCache.set(cacheKey, svg);
+    return svg;
+  }
+
+  // Doors: closed, ajar and open. Opening plays closed -> ajar -> open
+  // (closing the reverse), then the door sits still in its new state.
+  const DOOR_COLORS = { k: "#3a2a1c", D: "#9a6a3a", d: "#6e4524", b: "#7a4f22", M: "#c9c3b8" };
+  const DOOR_FRAMES = {
+    closed: [
+      "kkkkkkkkkkkk",
+      "kDDDDdDDDDDk",
+      "kDDDDdDDDDDk",
+      "kbbbbbbbbbbk",
+      "kDDDDdDDDDDk",
+      "kDDDDdDDDMDk",
+      "kDDDDdDDDMDk",
+      "kDDDDdDDDDDk",
+      "kbbbbbbbbbbk",
+      "kDDDDdDDDDDk",
+      "kDDDDdDDDDDk",
+      "kkkkkkkkkkkk",
+    ],
+    ajar: [
+      "kkkkkkkkkkkk",
+      "kDDDd......k",
+      "kDDDd......k",
+      "kbbbb......k",
+      "kDDDd......k",
+      "kDDMd......k",
+      "kDDMd......k",
+      "kDDDd......k",
+      "kbbbb......k",
+      "kDDDd......k",
+      "kDDDd......k",
+      "kkkkkkkkkkkk",
+    ],
+    open: [
+      "kkkkkkkkkkkk",
+      "kD.........k",
+      "kD.........k",
+      "kb.........k",
+      "kD.........k",
+      "kD.........k",
+      "kD.........k",
+      "kD.........k",
+      "kb.........k",
+      "kD.........k",
+      "kD.........k",
+      "kk........kk",
+    ],
+  };
+  // The vault's locked door: the same wooden door with iron bands and a padlock
+  DOOR_FRAMES.locked = [
+    "kkkkkkkkkkkk",
+    "kDDDDdDDDDDk",
+    "kIIIIIIIIIIk",
+    "kDDDDdDDDDDk",
+    "kDDDDYYDDDDk",
+    "kDDDDYYDDDDk",
+    "kDDDYyyYDDDk",
+    "kDDDYyyYDDDk",
+    "kDDDDdDDDDDk",
+    "kIIIIIIIIIIk",
+    "kDDDDdDDDDDk",
+    "kkkkkkkkkkkk",
+  ];
+  Object.assign(DOOR_COLORS, { I: "#5c5f66", Y: "#c9c3b8", y: "#3a3d42" });
+  const doorSprite = state => pixelSvg("door/" + state, DOOR_FRAMES[state], DOOR_COLORS);
+
+  // Stone stairs, seen from the side: three big stone steps with lit treads,
+  // shaded risers and mortar lines between the blocks. Up stairs climb to the
+  // right toward a glow of light; down stairs lead down into a dark doorway.
+  const STAIR_COLORS = { T: "#e6dfd0", F: "#a59c88", f: "#7d7564", k: "#2a2520", B: "#8a8274",
+                         m: "#5f584c", L: "#ffe9a8", l: "#f5d27a", v: "#050608" };
+  const STAIRS = {
+    up: [
+      ".........lLL",
+      "..........lL",
+      "...........l",
+      "........TTTT",
+      "........kFFF",
+      "........kfff",
+      "....TTTTmmmm",
+      "....kFFFBBmB",
+      "....kfffBBmB",
+      "TTTTmmmmmmmm",
+      "kFFFBBmBmBBB",
+      "kfffBBmBmBBB",
+    ],
+    down: [
+      "............",
+      "............",
+      "............",
+      "TTTT....kkkk",
+      "FFFk....kvvv",
+      "fffk....kvvv",
+      "mmmmTTTTkvvv",
+      "BBmBFFFkkvvv",
+      "BBmBfffkkvvv",
+      "mmmmmmmmTTTT",
+      "mBBBBBmBFFFk",
+      "mBBBBBmBfffk",
+    ],
+  };
+  const stairSprite = dir => pixelSvg("stairs/" + dir, STAIRS[dir], STAIR_COLORS);
+  // All three frames stacked; CSS steps through them once
+  function doorSwing(opening) {
+    const order = opening ? ["closed", "ajar", "open"] : ["open", "ajar", "closed"];
+    return order.map(doorSprite).join("");
+  }
+  // In-flight pictures for thrown things. The spear is drawn pointing right and
+  // turned to face where it's thrown; the others spin as they fly.
+  const PROJECTILES = {
+    stone: {
+      spin: 540,
+      colors: { A: "#a7a29c", a: "#7f7a74" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        ".....AA.....",
+        "....AaAA....",
+        "....AAAa....",
+        ".....AA.....",
+        "............",
+        "............",
+        "............",
+        "............",
+      ],
+    },
+    stick: {
+      spin: 720,
+      colors: { h: "#a8743f", k: "#6e4524" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        ".........h..",
+        ".hhhhkhhhh..",
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+      ],
+    },
+    axe: {
+      spin: 720,
+      colors: { A: "#a7a29c", h: "#a8743f" },
+      pixels: [
+        "............",
+        "......AA....",
+        "......AAA...",
+        "......hA....",
+        "......h.....",
+        "......h.....",
+        "......h.....",
+        "......h.....",
+        "......h.....",
+        "............",
+        "............",
+        "............",
+      ],
+    },
+    arrow: {
+      spin: 0, // points the way it flies
+      colors: { A: "#a7a29c", h: "#c08a44", f: "#e8dcc8" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        "f.........A.",
+        ".fhhhhhhhhAA",
+        "f.........A.",
+        "............",
+        "............",
+        "............",
+        "............",
+      ],
+    },
+    spear: {
+      spin: 0, // points the way it flies
+      colors: { A: "#a7a29c", h: "#a8743f" },
+      pixels: [
+        "............",
+        "............",
+        "............",
+        "............",
+        "............",
+        ".........A..",
+        "hhhhhhhhhAAA",
+        ".........A..",
+        "............",
+        "............",
+        "............",
+        "............",
+      ],
+    },
+  };
+  function projectileSprite(kind) {
+    const cacheKey = "projectile/" + kind;
+    if (spriteCache.has(cacheKey)) return spriteCache.get(cacheKey);
+    const { colors, pixels } = PROJECTILES[kind];
+    let rects = "";
+    pixels.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (colors[ch]) rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${colors[ch]}"/>`;
+    }));
+    const svg = `<svg viewBox="0 0 12 12" shape-rendering="crispEdges" style="display:block;width:100%;height:100%">${rects}</svg>`;
+    spriteCache.set(cacheKey, svg);
+    return svg;
+  }
+
+  function itemSprite(kind) {
+    const cacheKey = "item/" + kind;
+    if (spriteCache.has(cacheKey)) return spriteCache.get(cacheKey);
+    const { colors, pixels } = ITEM_SPRITES[kind];
+    let rects = "";
+    pixels.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (colors[ch]) rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${colors[ch]}"/>`;
+    }));
+    const svg = `<svg viewBox="0 0 12 12" shape-rendering="crispEdges">${rects}</svg>`;
+    spriteCache.set(cacheKey, svg);
+    return svg;
+  }
+
+  const inside = (x, y) =>
+    Math.round(Math.hypot(x - C, y - C)) <= RADIUS;
+
+  // Builds a brand new level of the cavern.
+  //  Level 1: the main room with its huts and torches, the passages and side
+  //           rooms leading off it, and stone stairs up in a far side room.
+  //  Level 2: many cave chambers joined by winding tunnels, with the stairs
+  //           back down in the first chamber.
+  function generateCave(depth = 1, tries = 0) {
+    // 1. Floor of the circle room (level 1 only): inside cells whose 8 neighbors are all inside
+    const floor = [];
+    for (let y = 0; y < SIZE; y++) {
+      floor.push([]);
+      for (let x = 0; x < SIZE; x++) {
+        let ok = depth === 1 && inside(x, y);
+        for (let dy = -1; dy <= 1 && ok; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            if (!inside(x + dx, y + dy)) ok = false;
+        floor[y].push(ok);
+      }
+    }
+
+    // Keep a 1-tile border of rock at the map edge so walls always fit
+    function carve(x, y) {
+      if (x > 0 && y > 0 && x < SIZE - 1 && y < SIZE - 1) floor[y][x] = true;
+    }
+
+    // Walk from (x, y) to (tx, ty) one N/S/E/W step at a time so it's always walkable.
+    // Each step picks x or y, weighted by how far is left on that axis, so it wanders.
+    function carvePath(x, y, tx, ty) {
+      const cells = [];
+      while (x !== tx || y !== ty) {
+        const rx = Math.abs(tx - x), ry = Math.abs(ty - y);
+        if (Math.random() * (rx + ry) < rx) x += Math.sign(tx - x);
+        else y += Math.sign(ty - y);
+        carve(x, y);
+        cells.push({ x, y });
+      }
+      return cells;
+    }
+
+    // A side room shape: 1-3 overlapping circles/ovals merged into one blob.
+    // Returns the ellipses (relative to the room center) and how far the blob reaches.
+    function makeBlob() {
+      const parts = [];
+      const count = randInt(1, 3);
+      for (let i = 0; i < count; i++) {
+        const rx = rand(BLOB_R_MIN, BLOB_R_MAX);
+        // Mostly ovals, sometimes a circle
+        const ry = Math.random() < 0.3 ? rx : rand(BLOB_R_MIN, BLOB_R_MAX);
+        // The first part sits at the center; the rest overlap it off to one side
+        const a = rand(0, Math.PI * 2);
+        const d = i === 0 ? 0 : rand(0.4, 0.8) * Math.min(parts[0].rx, parts[0].ry) +
+                                rand(0.2, 0.6) * Math.min(rx, ry);
+        parts.push({ ox: Math.cos(a) * d, oy: Math.sin(a) * d, rx, ry });
+      }
+      const reach = Math.max(...parts.map(p => Math.hypot(p.ox, p.oy) + Math.max(p.rx, p.ry)));
+      return { parts, reach };
+    }
+
+    const inBlob = (blob, cx, cy, x, y) => blob.parts.some(p =>
+      ((x - cx - p.ox) / p.rx) ** 2 + ((y - cy - p.oy) / p.ry) ** 2 <= 1);
+
+    function carveBlob(cx, cy, blob) {
+      const r = Math.ceil(blob.reach);
+      for (let y = cy - r; y <= cy + r; y++)
+        for (let x = cx - r; x <= cx + r; x++)
+          if (inBlob(blob, cx, cy, x, y)) carve(x, y);
+    }
+
+
+    // 2a. Level 2+: chambers scattered around, each joined by a winding tunnel to the
+    //     nearest chamber before it (so everything connects), plus a few extra
+    //     tunnels that make loops.
+    const chambers = [];
+    let vault = null;
+    if (depth > 1) {
+      const want = randInt(12, 16);
+      for (let tries = 0; chambers.length < want && tries < 600; tries++) {
+        const blob = makeBlob();
+        const r = Math.ceil(blob.reach);
+        const cx = randInt(C - 85 + r, C + 85 - r), cy = randInt(C - 85 + r, C + 85 - r);
+        if (chambers.some(c => Math.hypot(c.cx - cx, c.cy - cy) < c.blob.reach + blob.reach + 5)) continue;
+        chambers.push({ cx, cy, blob });
+      }
+      chambers.forEach(c => carveBlob(c.cx, c.cy, c.blob));
+      const tunnel = (a, b) => {
+        // bend through a point off to one side so tunnels twist
+        const mx = Math.round((a.cx + b.cx) / 2 + rand(-12, 12));
+        const my = Math.round((a.cy + b.cy) / 2 + rand(-12, 12));
+        return [...carvePath(a.cx, a.cy, mx, my), ...carvePath(mx, my, b.cx, b.cy)];
+      };
+      const gap = (a, b) => Math.hypot(a.cx - b.cx, a.cy - b.cy);
+      // The vault: the chamber farthest from where you arrive. It gets just one
+      // tunnel in, which will be shut by the locked door.
+      vault = chambers.slice(1).reduce((p, q) => (gap(q, chambers[0]) > gap(p, chambers[0]) ? q : p));
+      const open = chambers.filter(c => c !== vault);
+      for (let i = 1; i < open.length; i++) {
+        const near = open.slice(0, i).reduce((p, q) => (gap(open[i], q) < gap(open[i], p) ? q : p));
+        tunnel(open[i], near);
+      }
+      for (let k = 0; k < 4; k++) {
+        const a = pickOne(open);
+        const b = open.filter(c => c !== a).sort((p, q) => gap(a, p) - gap(a, q))[randInt(1, 2)];
+        if (b) tunnel(a, b);
+      }
+      const nearVault = open.reduce((p, q) => (gap(vault, q) < gap(vault, p) ? q : p));
+      vault.path = tunnel(vault, nearVault); // from the vault's middle outward
+    }
+    // Where flood fills start (always open floor): the main room's middle, or the first chamber
+    const start = depth === 1 ? { x: C, y: C } : { x: chambers[0].cx, y: chambers[0].cy };
+
+    // 2. Level 1: carve 1-3 passages outward at well-separated random angles.
+    //    Each passage leads to 1-2 side rooms, chained one after another.
+    const sideRooms = []; // { cx, cy, blob } for each side room, for placing the stairs
+    const passageCount = depth === 1 ? randInt(1, 3) : 0;
+    const doorways = []; // cells punched through the main room's wall, one list per passage
+    const baseAngle = Math.random() * Math.PI * 2;
+    for (let i = 0; i < passageCount; i++) {
+      const spread = (Math.PI * 2) / passageCount;
+      let angle = baseAngle + i * spread + (Math.random() - 0.5) * spread * 0.5;
+
+      // Start on the room floor just inside the wall
+      let x = Math.round(C + Math.cos(angle) * (RADIUS - 2));
+      let y = Math.round(C + Math.sin(angle) * (RADIUS - 2));
+      // Punch a straight doorway out through the wall along the main axis
+      const horizontal = Math.abs(Math.cos(angle)) > Math.abs(Math.sin(angle));
+      const sx = horizontal ? Math.sign(Math.cos(angle)) : 0;
+      const sy = horizontal ? 0 : Math.sign(Math.sin(angle));
+      const doorway = [];
+      while (Math.hypot(x - C, y - C) <= RADIUS + 1) {
+        x += sx; y += sy;
+        if (!floor[y][x]) doorway.push({ x, y, sx, sy });
+        carve(x, y);
+      }
+      doorways.push(doorway);
+
+      // Chain of side rooms; distance from the last room's edge to the next is a passage
+      let fromX = C, fromY = C, fromReach = RADIUS;
+      const roomCount = randInt(1, 2);
+      for (let r = 0; r < roomCount; r++) {
+        if (r > 0) angle += rand(-0.6, 0.6); // later rooms veer off a little
+        const blob = makeBlob();
+        const dist = fromReach + randInt(PASSAGE_MIN, PASSAGE_MAX) + blob.reach;
+        const cx = Math.round(fromX + Math.cos(angle) * dist);
+        const cy = Math.round(fromY + Math.sin(angle) * dist);
+        carvePath(x, y, cx, cy);
+        carveBlob(cx, cy, blob);
+        sideRooms.push({ cx, cy, blob });
+        x = fromX = cx;
+        y = fromY = cy;
+        fromReach = blob.reach;
+      }
+    }
+
+    // 3. Walls go on every non-floor cell touching floor (8 directions), so it's sealed
+    const map = [];
+    for (let y = 0; y < SIZE; y++) {
+      const row = [];
+      for (let x = 0; x < SIZE; x++) {
+        if (floor[y][x]) { row.push("."); continue; }
+        let wall = false;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            if (floor[y + dy] && floor[y + dy][x + dx]) wall = true;
+        row.push(wall ? "#" : " ");
+      }
+      map.push(row);
+    }
+
+    // 4a. Level 2: the locked door ('X') on the vault's tunnel, at the first narrow
+    //     spot (wall on both sides) just outside the vault
+    let lockedDoor = null;
+    if (vault) {
+      for (const { x, y } of vault.path) {
+        if (inBlob(vault.blob, vault.cx, vault.cy, x, y) || map[y][x] !== ".") continue;
+        if ((map[y - 1][x] === "#" && map[y + 1][x] === "#") || (map[y][x - 1] === "#" && map[y][x + 1] === "#")) {
+          lockedDoor = { x, y };
+          break;
+        }
+      }
+      if (lockedDoor) map[lockedDoor.y][lockedDoor.x] = "X";
+    }
+
+    // 4. A closed door ('+') where each passage leaves the main room: the first
+    //    doorway cell with wall on both sides, so you can't slip around it
+    for (const doorway of doorways) {
+      const door = doorway.find(({ x, y, sx, sy }) =>
+        map[y + sx][x + sy] === "#" && map[y - sx][x - sy] === "#") || doorway[0];
+      if (door) map[door.y][door.x] = "+";
+    }
+
+    // Shared helpers for placing things without cutting off part of the map
+    const STEP4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const walkable = t => t === "." || t === "+" || t === "-" || t === "X";
+    // Is every walkable tile still reachable from the start? (doors count as passable)
+    function allConnected() {
+      let total = 0;
+      map.forEach(row => row.forEach(t => { if (walkable(t)) total++; }));
+      const reached = new Set([start.x + "," + start.y]);
+      const stack = [[start.x, start.y]];
+      while (stack.length) {
+        const [x, y] = stack.pop();
+        for (const [dx, dy] of STEP4) {
+          const nx = x + dx, ny = y + dy, k = nx + "," + ny;
+          if (!reached.has(k) && walkable(map[ny][nx])) { reached.add(k); stack.push([nx, ny]); }
+        }
+      }
+      return reached.size === total;
+    }
+    // Block a tile with something, but only if that doesn't cut anything off
+    function tryPlace(x, y, ch) {
+      map[y][x] = ch;
+      if (allConnected()) return true;
+      map[y][x] = ".";
+      return false;
+    }
+
+    // The main room's doors (the only doors so far)
+    const mainDoors = [];
+    map.forEach((row, y) => row.forEach((t, x) => { if (t === "+") mainDoors.push({ x, y }); }));
+
+    // 4b. Cave men's living spaces: 2-3 rectangular huts inside the main room,
+    //     each about 7x7 inside. Walls are '_' on top and bottom (stored as 'H')
+    //     and '|' on the sides (stored as 'V'), with a door ('+') facing the middle
+    //     of the room, a bed (cot, '=') or two, and sometimes a fire ('^').
+    const FIRE_RADIUS = 4;
+    const fires = [];
+    const dwellings = []; // { x0, y0, x1, y1 (inside corners), door }
+    // Huts plus the 1-tile walkway kept clear around each; other things stay off these
+    const reserved = map.map(row => row.map(() => false));
+    {
+      const want = depth === 1 ? randInt(2, 3) : 0;
+      for (let tries = 0; dwellings.length < want && tries < 3000; tries++) {
+        const w = randInt(6, 8), h = randInt(6, 8);
+        const x0 = C + randInt(-RADIUS, RADIUS), x1 = x0 + w - 1;
+        const y0 = C + randInt(-RADIUS, RADIUS), y1 = y0 + h - 1;
+        // The hut, its walls, and a walkway all round must sit on open floor
+        // (so it stays clear of the room's wall, other huts and torches)...
+        let ok = true;
+        for (let y = y0 - 2; y <= y1 + 2 && ok; y++)
+          for (let x = x0 - 2; x <= x1 + 2; x++)
+            if (map[y][x] !== "." || reserved[y][x]) { ok = false; break; }
+        if (!ok) continue;
+        // ...away from the start spot and from the main room's doors
+        if (C >= x0 - 2 && C <= x1 + 2 && C >= y0 - 2 && C <= y1 + 2) continue;
+        if (mainDoors.some(d => d.x >= x0 - 5 && d.x <= x1 + 5 && d.y >= y0 - 5 && d.y <= y1 + 5)) continue;
+
+        // Walls
+        const ring = [];
+        for (let y = y0 - 1; y <= y1 + 1; y++)
+          for (let x = x0 - 1; x <= x1 + 1; x++) {
+            if (y === y0 - 1 || y === y1 + 1) map[y][x] = "H";
+            else if (x === x0 - 1 || x === x1 + 1) map[y][x] = "V";
+            else continue;
+            ring.push({ x, y });
+          }
+        // Door in the wall facing the middle of the main room (never a corner)
+        const ddx = C - (x0 + x1) / 2, ddy = C - (y0 + y1) / 2;
+        const door = Math.abs(ddx) >= Math.abs(ddy)
+          ? { x: ddx > 0 ? x1 + 1 : x0 - 1, y: randInt(y0 + 1, y1 - 1) }
+          : { x: randInt(x0 + 1, x1 - 1), y: ddy > 0 ? y1 + 1 : y0 - 1 };
+        map[door.y][door.x] = "+";
+        if (!allConnected()) {
+          ring.forEach(({ x, y }) => { map[y][x] = "."; });
+          continue;
+        }
+        for (let y = y0 - 2; y <= y1 + 2; y++)
+          for (let x = x0 - 2; x <= x1 + 2; x++) reserved[y][x] = true;
+        dwellings.push({ x0, y0, x1, y1, door });
+
+        // Furnish it, keeping the area just inside the door clear
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        const roomTiles = [];
+        for (let y = y0; y <= y1; y++)
+          for (let x = x0; x <= x1; x++)
+            if (Math.hypot(x - door.x, y - door.y) > 2) roomTiles.push({ x, y });
+
+        // Every hut has a bed (1-2 cots); about half also have a fire
+        let fire = null;
+        if (Math.random() < 0.5) {
+          // The fire goes as close to the middle of the hut as it can
+          const byCenter = roomTiles.slice().sort((a, b) =>
+            Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+          fire = byCenter.find(t => tryPlace(t.x, t.y, "^")) || null;
+          if (fire) fires.push({ x: fire.x, y: fire.y, lit: true, radius: FIRE_RADIUS });
+        }
+        {
+          // 1-2 cots against the wall, not crowding the fire or each other
+          const cots = [];
+          const spots = roomTiles
+            .filter(t => STEP4.some(([dx, dy]) => "HV".includes(map[t.y + dy][t.x + dx])))
+            .sort(() => Math.random() - 0.5);
+          const wantCots = randInt(1, 2);
+          for (const t of spots) {
+            if (cots.length >= wantCots) break;
+            if (map[t.y][t.x] !== ".") continue;
+            if (fire && Math.hypot(t.x - fire.x, t.y - fire.y) < 2) continue;
+            if (cots.some(c => Math.hypot(t.x - c.x, t.y - c.y) < 3)) continue;
+            if (tryPlace(t.x, t.y, "=")) cots.push(t);
+          }
+        }
+      }
+    }
+
+    // 5. Torches ('i') stand on the floor of the main room:
+    //    - 4-6 beside the wall, spread around the circle and kept away from doors
+    //      so their light doesn't spill into the passages
+    //    - 4-5 more scattered through the middle of the room
+    const TORCH_RADIUS = 6;
+    const torches = [];
+    {
+      const doors = mainDoors;
+      const ORTHO = STEP4;
+      const tooClose = (x, y, gap) => torches.some(t => Math.hypot(t.x - x, t.y - y) < gap);
+      const place = (x, y) => { map[y][x] = "i"; torches.push({ x, y, lit: true, radius: TORCH_RADIUS }); };
+
+      // Beside the wall
+      const wallCount = depth === 1 ? randInt(4, 6) : 0;
+      const base = Math.random() * Math.PI * 2;
+      for (let i = 0; i < wallCount; i++) {
+        // Try the even spot first, then nudge around it if a door is too close
+        for (let tries = 0; tries < 20; tries++) {
+          const nudge = tries === 0 ? 0 : (tries % 2 ? 1 : -1) * Math.ceil(tries / 2) * 0.05;
+          const a = base + i * (Math.PI * 2 / wallCount) + nudge;
+          // Walk out from the center to the room's wall; the torch goes on the last
+          // floor tile before it (skipping past any hut in the way)
+          let x = C, y = C, r = 0;
+          for (;;) {
+            r += 0.5;
+            const nx = Math.round(C + Math.cos(a) * r);
+            const ny = Math.round(C + Math.sin(a) * r);
+            if (map[ny][nx] === "#" || r > RADIUS + 1) break;
+            if (map[ny][nx] === "." && !reserved[ny][nx]) { x = nx; y = ny; }
+            else { x = C; y = C; } // inside or beside a hut: no spot yet
+          }
+          // Must be right up against the wall (not just touching it at a corner)
+          if (!ORTHO.some(([dx, dy]) => map[y + dy][x + dx] === "#")) continue;
+          if (doors.some(d => Math.hypot(d.x - x, d.y - y) < TORCH_RADIUS + 2)) continue;
+          if (tooClose(x, y, 4)) continue;
+          if (!tryPlace(x, y, "i")) continue;
+          place(x, y);
+          break;
+        }
+      }
+
+      // In the middle of the room, spaced out from each other and from the start spot
+      const middleCount = depth === 1 ? randInt(4, 5) : 0;
+      for (let placed = 0, tries = 0; placed < middleCount && tries < 500; tries++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = rand(3, RADIUS - 8);
+        const x = Math.round(C + Math.cos(a) * r);
+        const y = Math.round(C + Math.sin(a) * r);
+        if (map[y][x] !== "." || reserved[y][x] || tooClose(x, y, 7)) continue;
+        if (doors.some(d => Math.hypot(d.x - x, d.y - y) < TORCH_RADIUS + 2)) continue;
+        if (!tryPlace(x, y, "i")) continue;
+        place(x, y);
+        placed++;
+      }
+    }
+
+    // 6. Stone stairs: up ('<') in the side room farthest from the main room on
+    //    level 1; down ('>') in the first chamber on level 2. They go on a tile with
+    //    open floor all round so they never block the way.
+    let stairs = null;
+    const stairRooms = depth === 1
+      ? sideRooms.slice().sort((a, b) => Math.hypot(b.cx - C, b.cy - C) - Math.hypot(a.cx - C, a.cy - C))
+      : chambers.slice(0, 1);
+    const stairChar = depth === 1 ? "<" : ">";
+    for (const room of stairRooms) {
+      const r = Math.ceil(room.blob.reach);
+      const spots = [];
+      for (let y = room.cy - r; y <= room.cy + r; y++)
+        for (let x = room.cx - r; x <= room.cx + r; x++) {
+          let open = true;
+          for (let dy = -1; dy <= 1 && open; dy++)
+            for (let dx = -1; dx <= 1; dx++) if (map[y + dy][x + dx] !== ".") open = false;
+          if (open) spots.push({ x, y });
+        }
+      spots.sort((a, b) => Math.hypot(a.x - room.cx, a.y - room.cy) - Math.hypot(b.x - room.cx, b.y - room.cy));
+      stairs = spots.find(t => !(t.x === start.x && t.y === start.y) && tryPlace(t.x, t.y, stairChar)) || null;
+      if (stairs) break;
+    }
+
+    // Level 2 must have its vault sealed: with the locked door shut, there's no
+    // other way in. If a stray tunnel wandered into it, build the level again.
+    if (depth > 1 && tries < 20) {
+      let sealed = !!lockedDoor;
+      if (sealed) {
+        const seen = new Set([start.x + "," + start.y]);
+        const stack = [[start.x, start.y]];
+        while (stack.length && sealed) {
+          const [x, y] = stack.pop();
+          for (const [dx, dy] of STEP4) {
+            const nx = x + dx, ny = y + dy, k = nx + "," + ny;
+            if (seen.has(k) || !(map[ny][nx] === "." || map[ny][nx] === "-")) continue;
+            if (nx === vault.cx && ny === vault.cy) { sealed = false; break; }
+            seen.add(k); stack.push([nx, ny]);
+          }
+        }
+      }
+      if (!sealed || !stairs) return generateCave(depth, tries + 1);
+    }
+
+    const vaultArea = vault ? { cx: vault.cx, cy: vault.cy, reach: vault.blob.reach } : null;
+    return { map, torches, fires, dwellings, stairs, start, lockedDoor, vault: vaultArea };
+  }
+
+  // Starts play, either in a freshly generated cave or from a saved game
+  function startGame(save) {
+    // ---- Levels ----
+    // The level you're on lives in these variables; the others wait in `levels`
+    // (by depth) with everything as you left it.
+    let depth = save?.depth ?? 1;
+    const unpackLevel = L => ({
+      map: L.map.map(row => row.split("")),
+      seen: L.seen.map(row => [...row].map(c => c === "1")),
+      torches: L.torches.map(t => ({ ...t })),
+      fires: L.fires.map(f => ({ ...f })),
+      mobs: L.mobs.map(m => ({ ...m })),
+      items: L.items.map(i => ({ ...i })),
+    });
+    const packLevel = L => ({
+      map: L.map.map(row => row.join("")),
+      seen: L.seen.map(row => row.map(v => (v ? "1" : "0")).join("")),
+      torches: L.torches.map(t => ({ ...t })),
+      fires: L.fires.map(f => ({ ...f })),
+      mobs: L.mobs.map(m => ({ ...m })),
+      items: L.items.map(i => ({ ...i })),
+    });
+    const levels = {};
+    for (const [d, L] of Object.entries(save?.otherLevels ?? {})) levels[d] = unpackLevel(L);
+
+    let { map, torches, fires, dwellings = [] } = save
+      ? {
+          map: save.map.map(row => row.split("")),
+          torches: save.torches.map(t => ({ ...t })),
+          fires: save.fires.map(f => ({ ...f })),
+        }
+      : generateCave(1);
+
+    // How brightly lit torches light each tile (0 = dark). Only changes when a
+    // torch is lit or snuffed, so it's worked out then rather than every turn.
+    let torchGlow = map.map(row => row.map(() => 0));
+    function updateTorchGlow() {
+      torchGlow.forEach(row => row.fill(0));
+      // Fires give off light (and keep rats from spawning) just like torches
+      for (const t of [...torches, ...fires]) {
+        if (!t.lit) continue;
+        const R = t.radius;
+        for (let dy = -R; dy <= R; dy++)
+          for (let dx = -R; dx <= R; dx++) {
+            const d = Math.hypot(dx, dy);
+            if (Math.round(d) > R) continue;
+            const row = torchGlow[t.y + dy];
+            if (row) row[t.x + dx] = Math.max(row[t.x + dx], 1 - 0.7 * d / (R + 1));
+          }
+      }
+    }
+    updateTorchGlow();
+    const torchLit = (x, y) => torchGlow[y] && torchGlow[y][x] > 0;
+    // The torch or fire standing on a tile, if any
+    const lightAt = (x, y) => torches.find(t => t.x === x && t.y === y) ||
+                              fires.find(f => f.x === x && f.y === y);
+
+    const player = save ? { facing: "down", ...save.player } : { x: C, y: C, facing: "down" };
+    // Which way the cave man looks: sideways wins for diagonal steps
+    const faceToward = (dx, dy) => {
+      player.facing = dx > 0 ? "right" : dx < 0 ? "left" : dy < 0 ? "up" : "down";
+    };
+
+    // The screen is a window onto the map that follows the player.
+    // Zoom levels in tiles (across x down); 15x10 is the closest, 54x36 the farthest.
+    // New games start at 24x16.
+    const ZOOM_LEVELS = [[15, 10], [24, 16], [36, 24], [54, 36]];
+    const DEFAULT_ZOOM = 1;
+    let zoom = DEFAULT_ZOOM;
+    let VIEW_W = ZOOM_LEVELS[DEFAULT_ZOOM][0];
+    let VIEW_H = ZOOM_LEVELS[DEFAULT_ZOOM][1];
+
+    // Size tiles so the view fills the window. Measures everything else on the
+    // page (title, message, controls, padding, gaps) so the whole thing fits
+    // without scrolling at every zoom level and window size.
+    const mapEl = document.getElementById("map");
+    function fitMap() {
+      const body = getComputedStyle(document.body);
+      const map = getComputedStyle(mapEl);
+      const others = [...document.body.children].filter(el => el !== mapEl && el.offsetParent !== null);
+      const gap = parseFloat(body.rowGap) || 0;
+      const usedV = others.reduce((h, el) => h + el.offsetHeight, 0) + gap * others.length +
+        parseFloat(body.paddingTop) + parseFloat(body.paddingBottom) +
+        parseFloat(map.paddingTop) + parseFloat(map.paddingBottom);
+      const usedH = parseFloat(body.paddingLeft) + parseFloat(body.paddingRight) +
+        parseFloat(map.paddingLeft) + parseFloat(map.paddingRight);
+      const winW = document.documentElement.clientWidth;
+      const winH = document.documentElement.clientHeight;
+      const px = Math.min(
+        (winW - usedH) / (VIEW_W * 1.2),
+        (winH - usedV) / (VIEW_H * 1.2),
+        40
+      );
+      // Round down a hair so sub-pixel rounding can't push it over the edge
+      mapEl.style.fontSize = Math.max(2, Math.floor(px * 100) / 100 - 0.01) + "px";
+    }
+    window.addEventListener("resize", fitMap);
+
+    // Flip the animation frame a few times a second (creatures step, the cave man bobs)
+    mapEl.dataset.frame = "0";
+    setInterval(() => { mapEl.dataset.frame = mapEl.dataset.frame === "0" ? "1" : "0"; }, 380);
+
+    const zoomOutBtn = document.getElementById("zoom-out");
+    const zoomInBtn = document.getElementById("zoom-in");
+    const zoomLabel = document.getElementById("zoom-label");
+
+    function setZoom(level) {
+      zoom = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, level));
+      [VIEW_W, VIEW_H] = ZOOM_LEVELS[zoom];
+      zoomLabel.textContent = `${VIEW_W} × ${VIEW_H}`;
+      zoomInBtn.disabled = zoom === 0;
+      zoomOutBtn.disabled = zoom === ZOOM_LEVELS.length - 1;
+      fitMap();
+      render();
+    }
+    // Blur after clicking so keyboard input keeps going to the game
+    zoomOutBtn.addEventListener("click", () => { setZoom(zoom + 1); zoomOutBtn.blur(); });
+    zoomInBtn.addEventListener("click", () => { setZoom(zoom - 1); zoomInBtn.blur(); });
+
+    const DIRS = {
+      w: { dx: 0, dy: -1 },  // north
+      d: { dx: 1, dy: 0 },   // east
+      s: { dx: 0, dy: 1 },   // south
+      a: { dx: -1, dy: 0 },  // west
+      q: { dx: -1, dy: -1 }, // northwest
+      e: { dx: 1, dy: -1 },  // northeast
+      z: { dx: -1, dy: 1 },  // southwest
+      c: { dx: 1, dy: 1 },   // southeast
+    };
+    const passable = t => t === "." || t === "-";
+    const isDoor = t => t === "+" || t === "-" || t === "X";
+    // A diagonal step can't go into or out of a doorway, or squeeze between
+    // two blocked tiles (like slipping through the corner of a wall)
+    function diagonalBlocked(x, y, dx, dy) {
+      if (!dx || !dy) return false;
+      if (isDoor(map[y][x]) || isDoor(map[y + dy][x + dx])) return true;
+      return !passable(map[y][x + dx]) && !passable(map[y + dy][x]);
+    }
+
+    // The player emits light; tiles beyond this distance are dark
+    // How far your own light reaches: a torch in your off hand lights much farther
+    let offhand = save?.offhand ?? null;   // what's in the off hand ("torch"), or null
+    let exitDoor = save?.exitDoor ?? null; // the unlocked vault door { depth, x, y }: step in to escape
+    const LIGHT_RADIUS = 5;
+    const TORCH_LIGHT_RADIUS = 20;
+    const lightRadius = () => (offhand === "torch" ? TORCH_LIGHT_RADIUS : LIGHT_RADIUS);
+
+    // Tiles the light has ever touched stay visible in dim light
+    // (torch-lit tiles count as seen from the start)
+    let seen = save
+      ? save.seen.map(row => [...row].map(c => c === "1"))
+      : map.map((row, y) => row.map((t, x) => t !== " " && torchLit(x, y)));
+
+    // Mark every tile in the light as seen, even ones just off screen
+    function updateLight() {
+      torchGlow.forEach((row, y) => row.forEach((g, x) => {
+        if (g > 0 && map[y][x] !== " ") seen[y][x] = true;
+      }));
+      const R = lightRadius();
+      for (let dy = -R; dy <= R; dy++)
+        for (let dx = -R; dx <= R; dx++) {
+          const x = player.x + dx, y = player.y + dy;
+          if (map[y] && map[y][x] && map[y][x] !== " " &&
+              Math.round(Math.hypot(dx, dy)) <= R) seen[y][x] = true;
+        }
+    }
+
+    // ---- Creatures ----
+    // Cave rats wander at random. Once the player gets within RAT_SCARE steps, a rat
+    // flees every turn until it is RAT_SAFE steps away, then goes back to wandering.
+    // Monitor lizards wander too, but chase the player once within LIZARD_CHASE
+    // steps and bite when next to them.
+    const MOBS = {
+      rat:    { ch: "r", name: "cave rat", hp: 1, xp: 1, corpse: "corpse" },
+      lizard: { ch: "L", name: "monitor lizard", hp: 8, xp: 3, damage: 2, corpse: "lizardCorpse" },
+      caveman: { ch: "@", name: "cave man", hp: 10, xp: 2 },
+      lizardKing: { ch: "K", name: "lizard king", hp: 15, xp: 10, damage: 3, corpse: "lizardCorpse", drops: "key" },
+    };
+    const RAT_SCARE = 4;
+    const RAT_SAFE = 20;
+    const RAT_SPAWN_CHANCE = 1 / 40;     // chance per turn of a new rat appearing
+    const RAT_MAX = 4;
+    const RAT_START = 2;                 // rats already in the cave when the game starts
+    const LIZARD_CHASE = 4;
+    const LIZARD_SPAWN_CHANCE = { 1: 1 / 2000, 2: 1 / 250 }; // per turn, by level
+    const LIZARD_MAX = 3;                // per level
+    const LIZARD_START = { 1: 1, 2: 2 }; // lizards waiting on each level when you first get there
+    const LIZARD_HIT_CHANCE = 0.5;
+
+    // [{ kind, x, y, hp, fleeing }] (older saves only had rats)
+    let mobs = (save?.mobs ?? (save?.rats ?? []).map(r => ({ kind: "rat", ...r })))
+      .map(m => ({ hp: MOBS[m.kind].hp, ...m }));
+    const countOf = kind => mobs.filter(m => m.kind === kind).length;
+
+    // Rats (and checks for things next to you) only use the four straight directions
+    const STEPS = [DIRS.w, DIRS.d, DIRS.s, DIRS.a];
+    const ALL_STEPS = Object.values(DIRS);
+    const findFloor = () => {
+      const tiles = [];
+      map.forEach((row, y) => row.forEach((t, x) => { if (t === ".") tiles.push({ x, y }); }));
+      return tiles;
+    };
+    let floorTiles = findFloor();
+
+    const mobAt = (x, y) => mobs.find(m => m.x === x && m.y === y);
+    // Creatures can't open doors, so only floor and open doors are walkable for them
+    const mobCanEnter = (x, y) => {
+      const t = map[y] && map[y][x];
+      return (t === "." || t === "-") && !mobAt(x, y) && !(x === player.x && y === player.y);
+    };
+
+    // Walking distance (in steps) from the player to every nearby tile, up to `limit`
+    function stepsFromPlayer(limit) {
+      const dist = new Map([[player.x + "," + player.y, 0]]);
+      let frontier = [player];
+      for (let d = 1; d <= limit && frontier.length; d++) {
+        const next = [];
+        for (const p of frontier)
+          for (const { dx, dy } of STEPS) {
+            const x = p.x + dx, y = p.y + dy, k = x + "," + y;
+            const t = map[y] && map[y][x];
+            if (dist.has(k) || !(t === "." || t === "-")) continue;
+            dist.set(k, d);
+            next.push({ x, y });
+          }
+        frontier = next;
+      }
+      return dist; // tiles not in here are farther than `limit`
+    }
+
+    function spawnMob(kind) {
+      for (let tries = 0; tries < 50; tries++) {
+        const t = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+        // Out of the player's light (so nothing pops in on screen), never in torch
+        // light (torches keep mobs from spawning), and lizards stay out of the main room
+        if (Math.hypot(t.x - player.x, t.y - player.y) <= lightRadius() + 2) continue;
+        if (torchLit(t.x, t.y) || !mobCanEnter(t.x, t.y)) continue;
+        if (kind === "lizard" && depth === 1 && Math.hypot(t.x - C, t.y - C) <= RADIUS + 1) continue;
+        mobs.push({ kind, x: t.x, y: t.y, fleeing: false, hp: MOBS[kind].hp,
+                    facing: Math.random() < 0.5 ? "left" : "right" });
+        return;
+      }
+    }
+
+    // The lizard king: somewhere you can actually reach (not shut in the vault),
+    // well away from where you arrive
+    function spawnKing() {
+      const reach = stepsFromPlayer(400);
+      const spots = floorTiles.filter(t => {
+        const d = reach.get(t.x + "," + t.y);
+        return d !== undefined && d > 25 && mobCanEnter(t.x, t.y);
+      });
+      const t = pickRandom(spots.length ? spots : floorTiles);
+      mobs.push({ kind: "lizardKing", x: t.x, y: t.y, hp: MOBS.lizardKing.hp, facing: "left" });
+    }
+
+    // Possible steps for a creature: rats move straight, lizards and cave men can
+    // go diagonally too, and cave men never leave the inside of their own hut
+    function mobOptions(m) {
+      const dirs = m.kind === "rat" ? STEPS : ALL_STEPS;
+      const h = m.home;
+      return dirs
+        .filter(({ dx, dy }) => !diagonalBlocked(m.x, m.y, dx, dy))
+        .map(({ dx, dy }) => ({ x: m.x + dx, y: m.y + dy }))
+        .filter(o => mobCanEnter(o.x, o.y))
+        .filter(o => !h || (o.x >= h.x0 && o.x <= h.x1 && o.y >= h.y0 && o.y <= h.y1));
+    }
+    const pickRandom = list => list[Math.floor(Math.random() * list.length)];
+    // Move a creature, turning it to face left or right as it goes
+    function moveMob(m, to) {
+      if (to.x > m.x) m.facing = "right";
+      else if (to.x < m.x) m.facing = "left";
+      else if (m.kind === "caveman") m.facing = to.y < m.y ? "up" : "down"; // cave men face all 4 ways
+      m.x = to.x;
+      m.y = to.y;
+    }
+
+    function mobsTurn() {
+      const dist = stepsFromPlayer(RAT_SAFE);
+      const stepsTo = (x, y) => dist.get(x + "," + y) ?? Infinity;
+
+      for (const m of [...mobs]) {
+        if (dead) return;
+        const d = stepsTo(m.x, m.y);
+        const options = mobOptions(m);
+
+        if (m.kind === "caveman") {
+          // Potter about the hut, standing still a fair bit of the time
+          if (options.length && Math.random() < 0.6) moveMob(m, pickRandom(options));
+          continue;
+        }
+
+        if (m.kind === "lizard" || m.kind === "lizardKing") {
+          // (the lizard king behaves just like a monitor lizard, only tougher)
+          const dx = player.x - m.x, dy = player.y - m.y;
+          const nextTo = Math.max(Math.abs(dx), Math.abs(dy)) === 1 && !diagonalBlocked(m.x, m.y, dx, dy);
+          if (nextTo) {
+            if (Math.random() < LIZARD_HIT_CHANCE) hurtPlayer(MOBS[m.kind].damage, m);
+            else tell(`The ${MOBS[m.kind].name} snaps at you but misses.`);
+            continue;
+          }
+          if (!options.length) continue;
+          if (d <= LIZARD_CHASE) {
+            // Chase: step to the neighbor closest to the player
+            const score = o => stepsTo(o.x, o.y) * 100 + Math.hypot(o.x - player.x, o.y - player.y);
+            const best = options.reduce((a, b) => (score(b) < score(a) ? b : a));
+            if (score(best) < d * 100 + Math.hypot(dx, dy)) moveMob(m, best);
+          } else {
+            moveMob(m, pickRandom(options));
+          }
+          continue;
+        }
+
+        // Rats
+        if (d <= RAT_SCARE) m.fleeing = true;
+        else if (d >= RAT_SAFE) m.fleeing = false;
+        if (!options.length) continue;
+        if (m.fleeing) {
+          // Step to the neighbor that is the most steps from the player
+          // (or slide sideways along a wall if nothing is farther)
+          const best = Math.max(...options.map(o => stepsTo(o.x, o.y)));
+          if (best < d) continue; // cornered: every step leads closer, so cower
+          moveMob(m, pickRandom(options.filter(o => stepsTo(o.x, o.y) === best)));
+        } else {
+          moveMob(m, pickRandom(options));
+        }
+      }
+
+      if (countOf("rat") < RAT_MAX && Math.random() < RAT_SPAWN_CHANCE) spawnMob("rat");
+      if (countOf("lizard") < LIZARD_MAX && Math.random() < (LIZARD_SPAWN_CHANCE[depth] ?? 1 / 250)) spawnMob("lizard");
+    }
+
+    // Is a monitor lizard close enough to be chasing you?
+    const lizardNear = () => {
+      const dist = stepsFromPlayer(LIZARD_CHASE);
+      return mobs.some(m => (m.kind === "lizard" || m.kind === "lizardKing") && dist.has(m.x + "," + m.y));
+    };
+
+    let dead = false;
+    if (!save) for (let i = 0; i < RAT_START; i++) spawnMob("rat");
+    if (!save?.mobs) for (let i = 0; i < LIZARD_START[1]; i++) spawnMob("lizard");
+    // One cave man living in each hut (new games)
+    for (const h of dwellings) {
+      const spots = [];
+      for (let y = h.y0; y <= h.y1; y++)
+        for (let x = h.x0; x <= h.x1; x++) if (mobCanEnter(x, y)) spots.push({ x, y });
+      if (!spots.length) continue;
+      const spot = pickRandom(spots);
+      mobs.push({ kind: "caveman", ...spot, hp: MOBS.caveman.hp, facing: "down",
+                  look: randInt(0, NPC_LOOKS.length - 1),
+                  home: { x0: h.x0, y0: h.y0, x1: h.x1, y1: h.y1 } });
+    }
+
+    // ---- Items ----
+    // Things lying on the floor that you can pick up (G), throw (T) or eat (E)
+    const ITEMS = {
+      stone:  { ch: "*", name: "stone", plural: "stones", thrown: 2 },
+      stick:  { ch: "/", name: "stick", plural: "sticks", thrown: 1 },
+      corpse: { ch: "#", name: "cave rat corpse", plural: "cave rat corpses", food: 500 },
+      lizardCorpse: { ch: "%", name: "monitor lizard corpse", plural: "monitor lizard corpses", food: 300 },
+      // Crafted (C)
+      axe:    { ch: "(", name: "stone axe", plural: "stone axes", thrown: 2, melee: 3 },
+      spear:  { ch: ")", name: "stone spear", plural: "stone spears", thrown: 3, melee: 2 },
+      torch:  { ch: "!", name: "torch", plural: "torches" },
+      armor:  { ch: "[", name: "lizard armor", plural: "suits of lizard armor", one: "a suit of lizard armor", armor: 1 },
+      bow:    { ch: "}", name: "bow", plural: "bows", damage: 2 },
+      key:    { ch: "~", name: "king's key", plural: "king's keys" },
+    };
+    const STONES_START = 20;  // scattered around a new cave
+    const STICKS_START = 20;
+    const THROW_RANGE = 8;
+
+    // Items on the floor: [{ x, y, kind }]; several can share a tile
+    let items = save?.items ? save.items.map(i => ({ ...i })) : [];
+    const inventory = Object.fromEntries(Object.keys(ITEMS).map(k => [k, save?.inventory?.[k] ?? 0]));
+    // Scatter stones and sticks around a level the first time it's made
+    function scatterItems() {
+      const drop = (kind, count) => {
+        for (let n = 0; n < count; n++) {
+          const t = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+          if (t.x === player.x && t.y === player.y) { n--; continue; }
+          items.push({ x: t.x, y: t.y, kind });
+        }
+      };
+      drop("stone", STONES_START);
+      drop("stick", STICKS_START);
+    }
+    if (!save?.items) scatterItems();
+    const itemsAt = (x, y) => items.filter(i => i.x === x && i.y === y);
+    const UNARMED_DAMAGE = 1;
+    const WEAPONS = ["axe", "spear"];
+    let equipped = save?.equipped ?? null; // the weapon kind in hand, or null for bare hands
+    let worn = save?.worn ?? null;         // the armor being worn ("armor"), or null
+
+    // "a stone", "3 sticks", "a cave rat corpse"
+    const countName = (kind, n) => n === 1
+      ? ITEMS[kind].one ?? `a ${ITEMS[kind].name}`
+      : `${n} ${ITEMS[kind].plural}`;
+    const listNames = (counts) => {
+      const parts = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => countName(k, n));
+      return parts.length <= 1 ? parts.join("") : parts.slice(0, -1).join(", ") + " and " + parts.at(-1);
+    };
+
+    const inventoryEl = document.getElementById("inventory");
+    function updateInventory() {
+      const parts = Object.keys(ITEMS).filter(k => inventory[k] > 0)
+        .map(k => `<b>${inventory[k]}</b> ${inventory[k] === 1 ? ITEMS[k].name : ITEMS[k].plural}`);
+      const hand = equipped ? ITEMS[equipped].name : "bare hands";
+      const wearing = (worn ? ` &nbsp;|&nbsp; Wearing: <b>${ITEMS[worn].name}</b>` : "") +
+        (offhand ? ` &nbsp;|&nbsp; Off hand: <b>${ITEMS[offhand].name}</b>` : "");
+      inventoryEl.innerHTML = `Wielding: <b>${hand}</b>${wearing} &nbsp;|&nbsp; Inventory: ` +
+        (parts.length ? parts.join(" &middot; ") : "empty");
+    }
+
+    // ---- Wall pieces that join up with their neighbours ----
+    const isRock = t => t === "#" || t === " " || t === undefined;
+    function rockOpenMask(x, y) {
+      const open = (dx, dy) => !isRock(map[y + dy] && map[y + dy][x + dx]);
+      let m = (open(0, -1) ? 1 : 0) | (open(1, 0) ? 2 : 0) | (open(0, 1) ? 4 : 0) | (open(-1, 0) ? 8 : 0);
+      // a diagonal only matters when both sides next to it are rock (an inside corner)
+      if (!(m & 1) && !(m & 2) && open(1, -1)) m |= 16;
+      if (!(m & 4) && !(m & 2) && open(1, 1)) m |= 32;
+      if (!(m & 4) && !(m & 8) && open(-1, 1)) m |= 64;
+      if (!(m & 1) && !(m & 8) && open(-1, -1)) m |= 128;
+      return m;
+    }
+    // Hut walls: planks run along a straight wall; where it turns there's a corner post
+    function hutWallPiece(x, y) {
+      const joins = (dx, dy) => "HV+-".includes((map[y + dy] && map[y + dy][x + dx]) || " ");
+      const across = joins(-1, 0) || joins(1, 0), down = joins(0, -1) || joins(0, 1);
+      if (across && down) return "post";
+      return down ? "V" : "H";
+    }
+
+    // Doors that just opened or closed play their swing on the next draw
+    const swinging = new Map(); // "x,y" -> true (opening) / false (closing)
+    const swingDoor = (x, y, opening) => swinging.set(x + "," + y, opening);
+
+    function render() {
+      updateLight();
+      updateStats();
+      updateInventory();
+      const lightR = lightRadius();
+      // The top (most recently dropped) item on each tile
+      const itemGrid = new Map(items.map(i => [i.x + "," + i.y, i.kind]));
+      // Top-left corner of the view, keeping the player centered
+      const left = player.x - Math.floor(VIEW_W / 2);
+      const top = player.y - Math.floor(VIEW_H / 2);
+      let html = "";
+      for (let y = top; y < top + VIEW_H; y++) {
+        for (let x = left; x < left + VIEW_W; x++) {
+          const tile = map[y] && map[y][x];
+          const dist = Math.hypot(x - player.x, y - player.y);
+          const playerLit = Math.round(dist) <= lightR;
+          const glow = (torchGlow[y] && torchGlow[y][x]) || 0;
+          const lit = playerLit || glow > 0;
+          // Light fades from full brightness at the source to dim at the edge;
+          // the brighter of the player's light and torch light wins.
+          // Remembered tiles outside any light sit at a low, fixed dimness
+          const opacity = lit ? Math.max(playerLit ? 1 - 0.7 * dist / (lightR + 1) : 0, glow) : 0.2;
+          const style = ` style="opacity:${opacity.toFixed(2)}"`;
+
+          if (x === player.x && y === player.y) {
+            html += `<span class="player${offhand === "torch" ? " torch-held" : ""}">${cavemanSprite(player.facing, equipped, null, worn, offhand)}</span>`;
+          } else if (lit && mobAt(x, y)) {
+            // Creatures are only seen in the light, not in remembered areas
+            const m = mobAt(x, y);
+            html += m.kind === "caveman"
+              ? `<span class="npc${(m.x + m.y) % 2 ? " alt" : ""}" title="cave man"${style}>${cavemanSprite(m.facing || "down", null, m.look ?? 0)}</span>`
+              : `<span class="anim" title="${MOBS[m.kind].name}"${style}>${creatureSprite(m.kind, m.facing || "right", m.x + m.y)}</span>`;
+          } else if (!tile || !seen[y][x]) {
+            html += '<span> </span>';
+          } else if (itemGrid.has(x + "," + y)) {
+            // Items stay visible in remembered areas, since they don't move
+            const kind = itemGrid.get(x + "," + y);
+            html += ITEM_SPRITES[kind]
+              ? `<span class="item-sprite" title="${ITEMS[kind].name}"${style}>${itemSprite(kind)}</span>`
+              : `<span class="${kind}"${style}>${ITEMS[kind].ch}</span>`;
+          } else if (tile === "i" && lightAt(x, y).lit) {
+            html += `<span class="anim torch-lit" title="torch">${torchSprite(true, x + y)}</span>`;
+          } else if (tile === "i") {
+            html += `<span class="anim" title="torch (snuffed)"${style}>${torchSprite(false)}</span>`;
+          } else if (tile === "^" && lightAt(x, y).lit) {
+            html += `<span class="anim fire-lit" title="fire">${fireSprite(true, x + y)}</span>`;
+          } else if (tile === "^") {
+            html += `<span class="anim" title="fire (snuffed)"${style}>${fireSprite(false)}</span>`;
+          } else if (tile === "=") {
+            html += `<span class="anim" title="bed"${style}>${bedSprite(x + y)}</span>`;
+          } else if (tile === "<" || tile === ">") {
+            const up = tile === "<";
+            html += `<span class="sprite" title="stone stairs ${up ? "up" : "down"}"${style}>${stairSprite(up ? "up" : "down")}</span>`;
+          } else if (tile === "#") {
+            html += `<span class="sprite"${style}>${rockSprite(rockOpenMask(x, y), (x * 3 + y * 5) % 3)}</span>`;
+          } else if (tile === "H" || tile === "V") {
+            html += `<span class="sprite"${style}>${plankSprite(hutWallPiece(x, y))}</span>`;
+          } else if (tile === "X") {
+            html += `<span class="sprite" title="locked door"${style}>${doorSprite("locked")}</span>`;
+          } else if (tile === "+" || tile === "-") {
+            const key = x + "," + y;
+            const title = tile === "+" ? "door (closed)" : "door (open)";
+            html += swinging.has(key)
+              ? `<span class="sprite door-swing" title="${title}"${style}>${doorSwing(swinging.get(key))}</span>`
+              : `<span class="sprite" title="${title}"${style}>${doorSprite(tile === "+" ? "closed" : "open")}</span>`;
+          } else {
+            html += `<span class="floor"${style}>.</span>`;
+          }
+        }
+        html += "\n";
+      }
+      mapEl.innerHTML = html;
+      swinging.clear(); // each swing plays once
+    }
+
+    // ---- Player stats ----
+    const START_HP = 10;
+    const FOOD_TURNS = 3000;  // a full belly empties in this many turns
+    const XP_NEXT = 10;       // XP needed to reach the next level
+    const LEVEL_HP = 5;       // extra max HP (and healing) for each level gained
+    const REGEN_TURNS = 30;   // heal 1 HP every this many turns (not while starving)
+    const STARVE_TURNS = 10;  // while starving, lose 1 HP every this many turns
+    const stats = {
+      hp: save?.stats?.hp ?? START_HP,
+      maxHp: save?.stats?.maxHp ?? START_HP,
+      food: save?.stats?.food ?? FOOD_TURNS,
+      xp: save?.stats?.xp ?? 0,
+      level: save?.stats?.level ?? 1,
+      turn: save?.stats?.turn ?? 0,
+      starved: save?.stats?.starved ?? 0, // turns spent starving since you last ate
+    };
+
+    // Adds XP; every XP_NEXT points is a new level worth +LEVEL_HP max HP.
+    // Returns a message about any levels gained ("" if none).
+    function gainXp(amount) {
+      stats.xp += amount;
+      let note = "";
+      while (stats.xp >= XP_NEXT) {
+        stats.xp -= XP_NEXT;
+        stats.level++;
+        stats.maxHp += LEVEL_HP;
+        stats.hp += LEVEL_HP;
+        note = ` You reached level ${stats.level}! (+${LEVEL_HP} HP)`;
+      }
+      return note;
+    }
+
+    const hpFill = document.getElementById("hp-fill");
+    const foodFill = document.getElementById("food-fill");
+    const xpFill = document.getElementById("xp-fill");
+    function updateStats() {
+      hpFill.style.width = (100 * stats.hp / stats.maxHp) + "%";
+      document.getElementById("hp-val").textContent = `${stats.hp}/${stats.maxHp}`;
+      const foodPct = Math.ceil(100 * stats.food / FOOD_TURNS);
+      foodFill.style.width = foodPct + "%";
+      foodFill.classList.toggle("starving", stats.food === 0);
+      document.getElementById("food-val").textContent = stats.food === 0 ? "Starving" : foodPct + "%";
+      xpFill.style.width = (100 * stats.xp / XP_NEXT) + "%";
+      document.getElementById("xp-val").textContent = `${stats.xp}/${XP_NEXT}`;
+      document.getElementById("level-val").textContent = `Lv ${stats.level}`;
+      document.getElementById("ap-val").textContent = armorPoints();
+      document.getElementById("depth-val").textContent = depth;
+    }
+
+    // Everything that takes a turn goes through here: creatures move and you get hungrier
+    function endTurn() {
+      stats.turn++;
+      mobsTurn();
+      if (dead) return;
+      if (stats.food > 0) {
+        if (stats.turn % REGEN_TURNS === 0 && stats.hp < stats.maxHp) stats.hp++;
+        stats.food--;
+        stats.starved = 0;
+        if (stats.food === 0) tell("You are starving! Find something to eat.");
+      } else {
+        // Starving: no healing, and 1 HP lost every STARVE_TURNS turns
+        stats.starved++;
+        if (stats.starved % STARVE_TURNS === 0) {
+          stats.hp = Math.max(0, stats.hp - 1);
+          tell("Hunger gnaws at you. (-1 HP)");
+          if (stats.hp === 0) die("Starved to death");
+        }
+      }
+    }
+
+    // Each armor point takes 1 off the damage of every hit
+    const armorPoints = () => (worn ? ITEMS[worn].armor : 0);
+    function hurtPlayer(dmg, by) {
+      const blocked = Math.min(dmg, armorPoints());
+      dmg -= blocked;
+      stats.hp = Math.max(0, stats.hp - dmg);
+      const name = MOBS[by.kind].name;
+      tell(`The ${name} bites you! (-${dmg} HP${blocked ? `, your armor blocks ${blocked}` : ""})`);
+      if (stats.hp === 0) die(`Killed by a ${name}`);
+    }
+
+    // Through the vault door and out of the cave: the game is won
+    function escape() {
+      dead = true; // (stops any more moves, just like the end of the game when you die)
+      pending = null;
+      render();
+      document.getElementById("victory-art").innerHTML = cavemanSprite("down", equipped, null, worn, offhand);
+      document.getElementById("victory-stats").textContent =
+        `Escaped on turn ${stats.turn}, at experience level ${stats.level}.`;
+      document.getElementById("victory").classList.remove("hidden");
+    }
+
+    function die(cause) {
+      dead = true;
+      pending = null;
+      render();
+      document.getElementById("death-cause").textContent =
+        `${cause} on level ${depth} of the cavern, on turn ${stats.turn}, at experience level ${stats.level}.`;
+      document.getElementById("gameover").classList.remove("hidden");
+    }
+
+    function move(dx, dy) {
+      const nx = player.x + dx;
+      const ny = player.y + dy;
+      faceToward(dx, dy);
+      const tile = map[ny] && map[ny][nx];
+      if (diagonalBlocked(player.x, player.y, dx, dy)) {
+        if (isDoor(tile) || isDoor(map[player.y][player.x]))
+          say("You can't move diagonally through a doorway.");
+        render(); // still turn to face that way
+        return;
+      }
+      const target = mobAt(nx, ny);
+      const dmg = equipped ? ITEMS[equipped].melee : UNARMED_DAMAGE;
+      const how = equipped ? `with your ${ITEMS[equipped].name}` : "with your bare hands";
+      if (target && target.kind === "caveman") {
+        // Other cave men aren't enemies, so check before swinging at one
+        pending = {
+          question: "Attack the cave man? (y/n)",
+          act() { say(`You hit the cave man ${how}.` + hitMob(target, dmg)); return true; },
+        };
+        say(pending.question);
+        render();
+        return;
+      }
+      if (target) {
+        // Running into a creature attacks it with whatever you're wielding
+        say(`You hit the ${MOBS[target.kind].name} ${how}.` + hitMob(target, dmg));
+      } else if (tile === "X") {
+        say(inventory.key > 0
+          ? "The door is locked. Press I to unlock it with the king's key."
+          : "The door is locked. The lizard king carries the key.");
+        render();
+        return;
+      } else if (tile === "+") {
+        // Running into a closed door opens it; you stay put this turn
+        map[ny][nx] = "-";
+        swingDoor(nx, ny, true);
+      } else if (tile === "." || tile === "-") {
+        player.x = nx;
+        player.y = ny;
+        if (exitDoor && exitDoor.depth === depth && exitDoor.x === nx && exitDoor.y === ny) {
+          escape();
+          return;
+        }
+      } else {
+        render(); // walked into a wall: you turn to face it, but no turn passes
+        return;
+      }
+      endTurn();
+      render();
+    }
+
+    // ---- Interacting (I) ----
+    // Pressing I next to a door asks whether to open or close it; Y confirms, N cancels.
+    const messageEl = document.getElementById("message");
+    // (refits the map in case a long message wraps onto a second line)
+    const say = (text) => { messageEl.textContent = text || "\u00a0"; updatePromptButtons(); fitMap(); };
+
+    // ---- Tap-friendly answers ----
+    // Buttons for the question on screen; each one just presses the matching key.
+    const promptEl = document.getElementById("prompt-buttons");
+    const pressKey = (key, extra = {}) =>
+      document.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true, ...extra }));
+    function updatePromptButtons() {
+      let choices = [];
+      if (pending && pending.choices) choices = pending.choices;
+      else if (pending && "number" in pending) {
+        // sleeping: a few handy amounts (clear whatever was typed, then enter it)
+        choices = [10, 50, 100, 200].map(n => ({
+          label: `${n} turns`, keys: ["Backspace", "Backspace", "Backspace", ...String(n), "Enter"],
+        }));
+        choices.push({ label: "Cancel", key: "Escape" });
+      } else if (pending && !pending.onKey) {
+        choices = [{ label: "Yes", key: "y" }, { label: "No", key: "n" }];
+      }
+      promptEl.innerHTML = "";
+      for (const c of choices) {
+        const b = document.createElement("button");
+        b.textContent = c.label;
+        b.addEventListener("click", () => { b.blur(); (c.keys || [c.key]).forEach(k => pressKey(k)); });
+        promptEl.appendChild(b);
+      }
+      if (pending && pending.hint) {
+        const hint = document.createElement("span");
+        hint.textContent = pending.hint;
+        hint.style.cssText = "align-self:center;color:var(--muted);font-size:13px";
+        promptEl.appendChild(hint);
+      }
+    }
+    // Adds to this turn's message instead of replacing it
+    const tell = (text) => {
+      const now = messageEl.textContent.trim();
+      say(now ? now + " " + text : text);
+    };
+    let pending = null; // the question waiting for a Y/N answer
+
+    function interact() {
+      const spot = STEPS
+        .map(({ dx, dy }) => ({ x: player.x + dx, y: player.y + dy }))
+        .find(({ x, y }) => "+-i^=<>X".includes(map[y][x]));
+      if (!spot) {
+        say(map[player.y][player.x] === "-"
+          ? "You're standing in the doorway. Step out to use the door."
+          : "There's nothing here to interact with.");
+        return;
+      }
+      const { x, y } = spot;
+
+      if (map[y][x] === "X") {
+        if (inventory.key <= 0) { say("The door is locked. The lizard king carries the key."); return; }
+        pending = {
+          question: "Unlock the door with the king's key? (y/n)",
+          act() {
+            inventory.key--;
+            map[y][x] = "-";
+            swingDoor(x, y, true);
+            exitDoor = { depth, x, y };
+            say("You turn the king's key and the heavy door swings open. Fresh air drifts in from beyond...");
+            return true;
+          },
+        };
+        say(pending.question);
+        return;
+      }
+
+      if (map[y][x] === "<" || map[y][x] === ">") {
+        const up = map[y][x] === "<";
+        const to = up ? depth + 1 : depth - 1;
+        pending = {
+          question: up ? `Climb the stone stairs up to level ${to} of the cavern? (y/n)`
+                       : `Climb down the stone stairs to level ${to}? (y/n)`,
+          act() { changeLevel(to); return false; }, // changeLevel draws the new level itself
+        };
+        say(pending.question);
+        return;
+      }
+
+      if (map[y][x] === "=" && lizardNear()) {
+        say("You can't sleep with a monitor lizard nearby!");
+        return;
+      }
+      if (map[y][x] === "=") {
+        // Sleeping: type how many turns to sleep, then Enter
+        pending = {
+          number: "",
+          question: `Sleep for how many turns? (1-${MAX_SLEEP}, Enter to sleep, Esc to cancel): `,
+        };
+        say(pending.question);
+        return;
+      }
+
+      if (map[y][x] === "i" || map[y][x] === "^") {
+        const light = lightAt(x, y);
+        const name = map[y][x] === "i" ? "torch" : "fire";
+        pending = {
+          question: light.lit ? `Snuff the ${name}? (y/n)` : `Light the ${name}? (y/n)`,
+          act() {
+            light.lit = !light.lit;
+            updateTorchGlow();
+            say(light.lit ? `You light the ${name}.` : `You snuff out the ${name}.`);
+            return true;
+          },
+        };
+      } else {
+        const closing = map[y][x] === "-";
+        pending = {
+          question: closing ? "Close the door? (y/n)" : "Open the door? (y/n)",
+          act() {
+            const blocker = mobAt(x, y);
+            if (closing && blocker) { say(`A ${MOBS[blocker.kind].name} is in the doorway.`); return false; }
+            map[y][x] = closing ? "+" : "-";
+            swingDoor(x, y, !closing);
+            say(closing ? "You close the door." : "You open the door.");
+            return true;
+          },
+        };
+      }
+      say(pending.question);
+    }
+
+    // G: pick up everything on your tile
+    function pickUp() {
+      const here = itemsAt(player.x, player.y);
+      if (!here.length) { say("There's nothing here to pick up."); return; }
+      const got = {};
+      for (const it of here) {
+        inventory[it.kind]++;
+        got[it.kind] = (got[it.kind] || 0) + 1;
+        items.splice(items.indexOf(it), 1);
+      }
+      say(`You pick up ${listNames(got)}.`);
+      endTurn();
+      render();
+    }
+
+    // F: eat a corpse (from your inventory, or one you're standing on). If there's
+    // more than one kind to hand, ask which, since lizard corpses are also for crafting.
+    const EDIBLE = ["corpse", "lizardCorpse"];
+    function eatKind(kind) {
+      const onFloor = itemsAt(player.x, player.y).find(i => i.kind === kind);
+      if (inventory[kind] > 0) inventory[kind]--;
+      else items.splice(items.indexOf(onFloor), 1);
+      const before = stats.food;
+      stats.food = Math.min(FOOD_TURNS, stats.food + ITEMS[kind].food);
+      say(`You eat the ${ITEMS[kind].name}. (+${stats.food - before} food)`);
+      endTurn();
+      render();
+    }
+    function eat() {
+      const here = itemsAt(player.x, player.y);
+      const available = EDIBLE.filter(k => inventory[k] > 0 || here.some(i => i.kind === k));
+      if (!available.length) { say("You have nothing to eat."); return; }
+      if (available.length === 1) { eatKind(available[0]); return; }
+      const label = k => `${ITEMS[k].name} (+${ITEMS[k].food} food)`;
+      pending = {
+        question: `Eat what? ${available.map((k, i) => `(${i + 1}) ${label(k)}`).join("  ")}  (Esc to cancel)`,
+        choices: [...available.map((k, i) => ({ label: label(k), key: String(i + 1) })),
+                  { label: "Cancel", key: "Escape" }],
+        onKey(e) {
+          const k = available[Number(e.key) - 1];
+          if (k) { pending = null; eatKind(k); }
+          else if (e.key === "Escape") { pending = null; say(""); }
+        },
+      };
+      say(pending.question);
+    }
+
+    // Damages a creature; if it dies you get XP (and rats leave a corpse).
+    // Returns the rest of the message (" The cave rat dies! ..." or "").
+    function hitMob(m, dmg) {
+      const info = MOBS[m.kind];
+      m.hp -= dmg;
+      if (m.hp > 0) return info.hp > 1 ? ` (${m.hp}/${info.hp} HP left)` : "";
+      mobs.splice(mobs.indexOf(m), 1);
+      if (info.corpse) items.push({ x: m.x, y: m.y, kind: info.corpse });
+      if (info.drops) items.push({ x: m.x, y: m.y, kind: info.drops });
+      const dropNote = info.drops ? ` It drops ${countName(info.drops, 1)}!` : "";
+      return ` The ${info.name} dies! (+${info.xp} XP)${dropNote}` + gainXp(info.xp);
+    }
+
+    // T: throw something in a straight line (diagonals too). It flies until it hits
+    // a rat, a wall or something else in the way, or runs out of range, then lands there.
+    // Where something flung from you in a straight line ends up: it flies until it
+    // hits a creature, a wall or something else in the way, or runs out of range
+    function flightPath(dx, dy, range) {
+      let x = player.x, y = player.y, hit = null;
+      for (let i = 0; i < range; i++) {
+        const nx = x + dx, ny = y + dy;
+        if (diagonalBlocked(x, y, dx, dy)) break;
+        const m = mobAt(nx, ny);
+        if (m) { x = nx; y = ny; hit = m; break; }
+        const t = map[ny] && map[ny][nx];
+        if (!passable(t)) break; // wall, closed door, torch, bed...
+        x = nx; y = ny;
+      }
+      return { x, y, hit };
+    }
+
+    // B: shoot the bow. Arrows don't run out, and they're lost after the shot.
+    const BOW_RANGE = 10;
+    function shoot(dx, dy) {
+      faceToward(dx, dy);
+      const { x, y, hit } = flightPath(dx, dy, BOW_RANGE);
+      say("");
+      render();
+      animateThrow("arrow", x - player.x, y - player.y, dx, dy).then(() => {
+        if (hit) say(`Your arrow hits the ${MOBS[hit.kind].name}.` + hitMob(hit, ITEMS.bow.damage));
+        else say("Your arrow clatters away into the dark.");
+        endTurn();
+        render();
+      });
+    }
+    function startShoot() {
+      if (inventory.bow <= 0) { say("You have no bow. Craft one with R."); return; }
+      pending = {
+        question: "Shoot which way? (W/A/S/D or Q/E/Z/C, Esc to cancel)",
+        hint: "Tap the map or an arrow to aim",
+        choices: [{ label: "Cancel", key: "Escape" }],
+        onKey(e) {
+          const dir = DIRS[e.key.toLowerCase()];
+          if (dir) { pending = null; shoot(dir.dx, dir.dy); }
+          else if (e.key === "Escape") { pending = null; say(""); }
+        },
+      };
+      say(pending.question);
+    }
+
+    function throwItem(kind, dx, dy) {
+      faceToward(dx, dy);
+      inventory[kind]--;
+      let unequipNote = "";
+      if (equipped === kind && inventory[kind] === 0) {
+        equipped = null;
+        unequipNote = " You're now bare-handed.";
+      }
+      const { x, y, hit } = flightPath(dx, dy, THROW_RANGE);
+      say("");
+      render(); // shows you turned and the item leaving your inventory
+      animateThrow(kind, x - player.x, y - player.y, dx, dy).then(() => {
+        items.push({ x, y, kind });
+        const name = ITEMS[kind].name;
+        if (hit) {
+          say(`Your ${name} hits the ${MOBS[hit.kind].name}.` + hitMob(hit, ITEMS[kind].thrown) + unequipNote);
+        } else {
+          say((x === player.x && y === player.y
+            ? `Your ${name} drops at your feet.`
+            : `Your ${name} lands on the ground.`) + unequipNote);
+        }
+        endTurn();
+        render();
+      });
+    }
+
+    // Fly a picture of the thrown thing from the cave man to where it ends up
+    // (offX/offY tiles away). Input is paused until it lands.
+    let busy = false;
+    function animateThrow(kind, offX, offY, dx, dy) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if ((!offX && !offY) || reduceMotion) return Promise.resolve();
+      busy = true;
+      const tile = parseFloat(mapEl.style.fontSize) * 1.2;
+      const box = mapEl.getBoundingClientRect();
+      const cs = getComputedStyle(mapEl);
+      const padL = parseFloat(cs.paddingLeft), padT = parseFloat(cs.paddingTop);
+      // A clipping layer over the visible map, so the item can't fly outside it
+      const layer = document.createElement("div");
+      layer.style.cssText = `position:fixed;left:${box.left + padL}px;top:${box.top + padT}px;` +
+        `width:${tile * VIEW_W}px;height:${tile * VIEW_H}px;overflow:hidden;pointer-events:none;z-index:5`;
+      const el = document.createElement("div");
+      el.style.cssText = `position:absolute;left:0;top:0;width:${tile}px;height:${tile}px`;
+      el.innerHTML = projectileSprite(kind);
+      layer.appendChild(el);
+      document.body.appendChild(layer);
+
+      const col = Math.floor(VIEW_W / 2), row = Math.floor(VIEW_H / 2);
+      const x0 = col * tile, y0 = row * tile;
+      const x1 = (col + offX) * tile, y1 = (row + offY) * tile;
+      const spin = PROJECTILES[kind].spin;
+      const aim = spin ? 0 : Math.atan2(dy, dx) * 180 / Math.PI;
+      const tiles = Math.max(Math.abs(offX), Math.abs(offY));
+      const anim = el.animate([
+        { transform: `translate(${x0}px, ${y0}px) rotate(${aim}deg) scale(1)` },
+        { transform: `translate(${(x0 + x1) / 2}px, ${(y0 + y1) / 2}px) rotate(${aim + spin / 2}deg) scale(1.3)` },
+        { transform: `translate(${x1}px, ${y1}px) rotate(${aim + spin}deg) scale(1)` },
+      ], { duration: Math.max(160, tiles * 55), easing: "linear" });
+      return anim.finished.then(() => { layer.remove(); busy = false; });
+    }
+
+    function askDirection(kind) {
+      const name = ITEMS[kind].name;
+      pending = {
+        question: `Throw the ${name} which way? (W/A/S/D or Q/E/Z/C, Esc to cancel)`,
+        hint: "Tap the map or an arrow to aim",
+        choices: [{ label: "Cancel", key: "Escape" }],
+        onKey(e) {
+          const dir = DIRS[e.key.toLowerCase()];
+          if (dir) { pending = null; throwItem(kind, dir.dx, dir.dy); }
+          else if (e.key === "Escape") { pending = null; say(""); }
+        },
+      };
+      say(pending.question);
+    }
+
+    // ---- Crafting (R) ----
+    const RECIPES = [
+      { make: "axe",   needs: { stone: 5, stick: 1 } },
+      { make: "spear", needs: { stick: 5, stone: 1 } },
+      { make: "torch", needs: { stick: 5 } },
+      { make: "armor", needs: { lizardCorpse: 3 } },
+      { make: "bow",   needs: { stick: 5, lizardCorpse: 1 } },
+    ];
+    const craftEl = document.getElementById("craft-menu");
+    const canCraft = (r) => Object.entries(r.needs).every(([k, n]) => inventory[k] >= n);
+
+    function showCraftMenu(note = "") {
+      const rows = RECIPES.map((r, i) => {
+        const needs = Object.entries(r.needs).map(([k, n]) =>
+          `<span class="${inventory[k] >= n ? "have" : "missing"}">${countName(k, n)} (${inventory[k]}/${n})</span>`
+        ).join(", ");
+        return `<button class="recipe${canCraft(r) ? "" : " cant"}" data-i="${i}">
+          <kbd>${i + 1}</kbd><span class="recipe-name">${ITEMS[r.make].name}</span>
+          <span class="recipe-needs">${needs}</span></button>`;
+      }).join("");
+      craftEl.innerHTML = `<h2>Crafting</h2>${rows}
+        <p class="craft-note">${note || "Press 1-" + RECIPES.length + " (or tap) to craft. Esc or R to close."}</p>
+        <button class="recipe-close">Close</button>`;
+      craftEl.classList.remove("hidden");
+      craftEl.querySelectorAll(".recipe").forEach(btn =>
+        btn.addEventListener("click", () => craft(RECIPES[btn.dataset.i])));
+      craftEl.querySelector(".recipe-close").addEventListener("click", () => { closeCraftMenu(); say(""); });
+    }
+    function closeCraftMenu() {
+      craftEl.classList.add("hidden");
+      pending = null;
+    }
+
+    function craft(recipe) {
+      if (!canCraft(recipe)) {
+        const short = Object.entries(recipe.needs)
+          .filter(([k, n]) => inventory[k] < n)
+          .map(([k, n]) => {
+            const more = n - inventory[k];
+            return `${more} more ${more === 1 ? ITEMS[k].name : ITEMS[k].plural}`;
+          });
+        showCraftMenu(`To make a ${ITEMS[recipe.make].name} you need ${short.join(" and ")}.`);
+        return;
+      }
+      for (const [k, n] of Object.entries(recipe.needs)) inventory[k] -= n;
+      inventory[recipe.make]++;
+      closeCraftMenu();
+      say(`You craft ${countName(recipe.make, 1)}.`);
+      endTurn(); // crafting takes a turn
+      render();
+    }
+
+    function openCrafting() {
+      pending = {
+        onKey(e) {
+          const i = Number(e.key) - 1;
+          if (RECIPES[i]) craft(RECIPES[i]);
+          else if (e.key === "Escape" || e.key.toLowerCase() === "r") { closeCraftMenu(); say(""); }
+        },
+      };
+      showCraftMenu();
+    }
+
+    function startThrow() {
+      const throwable = ["stone", "stick", "axe", "spear"].filter(k => inventory[k] > 0);
+      if (!throwable.length) { say("You have nothing to throw."); return; }
+      if (throwable.length === 1) { askDirection(throwable[0]); return; }
+      const options = throwable.map((k, i) => `(${i + 1}) ${ITEMS[k].name} ×${inventory[k]}`).join("  ");
+      pending = {
+        question: `Throw what? ${options}  (Esc to cancel)`,
+        choices: [...throwable.map((k, i) => ({ label: `${ITEMS[k].name} ×${inventory[k]}`, key: String(i + 1) })),
+                  { label: "Cancel", key: "Escape" }],
+        onKey(e) {
+          const pick = throwable[Number(e.key) - 1];
+          if (pick) askDirection(pick);
+          else if (e.key === "Escape") { pending = null; say(""); }
+        },
+      };
+      say(pending.question);
+    }
+
+    // X: equip a weapon (or go bare-handed)
+    // X: equip a weapon (or go bare-handed), or hold a torch in your off hand
+    function startEquip() {
+      const weapons = WEAPONS.filter(k => inventory[k] > 0);
+      const options = [];
+      for (const k of weapons)
+        options.push({ label: ITEMS[k].name + (k === equipped ? " (equipped)" : ""),
+                       done: () => { equipped = k; return `You equip the ${ITEMS[k].name}.`; } });
+      if (weapons.length)
+        options.push({ label: "bare hands" + (equipped === null ? " (equipped)" : ""),
+                       done: () => { equipped = null; return "You put your weapon away."; } });
+      if (inventory.torch > 0)
+        options.push(offhand === "torch"
+          ? { label: "put the torch away", done: () => { offhand = null; return "You put the torch away. The dark closes in."; } }
+          : { label: "torch in off hand", done: () => { offhand = "torch"; return "You hold up a torch in your off hand. Its light reaches far into the cavern."; } });
+      if (!options.length) { say("You have nothing to equip. Craft a weapon or a torch with R."); return; }
+      const list = options.map((o, i) => `(${i + 1}) ${o.label}`).join("  ");
+      pending = {
+        question: `Equip what? ${list}  (Esc to cancel)`,
+        choices: [...options.map((o, i) => ({ label: o.label, key: String(i + 1) })),
+                  { label: "Cancel", key: "Escape" }],
+        onKey(e) {
+          const o = options[Number(e.key) - 1];
+          if (o) {
+            pending = null;
+            say(o.done());
+            endTurn(); // equipping takes a turn
+            render();
+          } else if (e.key === "Escape") { pending = null; say(""); }
+        },
+      };
+      say(pending.question);
+    }
+
+    // Move to another level of the cavern: put this one away as it is, then fetch
+    // (or make, the first time) the other and arrive beside its stairs
+    function changeLevel(to) {
+      const from = depth;
+      levels[from] = { map, seen, torches, fires, mobs, items };
+      let fresh = false;
+      if (!levels[to]) {
+        const cave = generateCave(to);
+        levels[to] = { map: cave.map, seen: cave.map.map(r => r.map(() => false)),
+                       torches: cave.torches, fires: cave.fires, mobs: [], items: [] };
+        fresh = true;
+      }
+      ({ map, seen, torches, fires, mobs, items } = levels[to]);
+      delete levels[to];
+      depth = to;
+      floorTiles = findFloor();
+      torchGlow = map.map(row => row.map(() => 0));
+      updateTorchGlow();
+      swinging.clear();
+      pending = null;
+
+      // Arrive next to the stairs that lead back the way you came
+      const back = to > from ? ">" : "<";
+      let stairs = null;
+      map.forEach((row, y) => row.forEach((t, x) => { if (t === back) stairs = { x, y }; }));
+      const spot = STEPS.map(({ dx, dy }) => ({ x: stairs.x + dx, y: stairs.y + dy }))
+        .find(p => map[p.y][p.x] === "." && !mobAt(p.x, p.y));
+      player.x = spot.x;
+      player.y = spot.y;
+
+      if (fresh) {
+        scatterItems();
+        for (let i = 0; i < RAT_START; i++) spawnMob("rat");
+        for (let i = 0; i < (LIZARD_START[to] ?? 2); i++) spawnMob("lizard");
+        if (map.some(row => row.includes("X"))) spawnKing();
+      }
+      say(to > from
+        ? `You climb the stone stairs up to level ${to} of the cavern.`
+        : `You climb back down the stone stairs to level ${to}.`);
+      render();
+    }
+
+    // O: don armor (or take it off)
+    function startDon() {
+      if (inventory.armor <= 0) { say("You have no armor to don. Craft some with R."); return; }
+      const choices = ["armor", null];
+      const label = k => (k ? ITEMS[k].name : "no armor") + (k === worn ? " (wearing)" : "");
+      const options = choices.map((k, i) => `(${i + 1}) ${label(k)}`).join("  ");
+      pending = {
+        question: `Don what? ${options}  (Esc to cancel)`,
+        choices: [...choices.map((k, i) => ({ label: label(k), key: String(i + 1) })),
+                  { label: "Cancel", key: "Escape" }],
+        onKey(e) {
+          const i = Number(e.key) - 1;
+          if (i >= 0 && i < choices.length) {
+            pending = null;
+            worn = choices[i];
+            say(worn ? `You don the ${ITEMS[worn].name}.` : "You take off your armor.");
+            endTurn(); // dressing takes a turn
+            render();
+          } else if (e.key === "Escape") { pending = null; say(""); }
+        },
+      };
+      say(pending.question);
+    }
+
+    const MAX_SLEEP = 200;
+    // Sleep turn by turn; a monitor lizard coming near wakes you up
+    function sleep(turns) {
+      say("");
+      let slept = 0, woke = false;
+      while (slept < turns) {
+        endTurn();
+        slept++;
+        if (dead) return;
+        if (lizardNear()) { woke = true; break; }
+      }
+      const during = messageEl.textContent.trim();
+      const starving = stats.food === 0 ? " You wake up starving!" : "";
+      const alarm = woke ? " You wake up — a monitor lizard is near!" : "";
+      say(`You sleep for ${slept} turn${slept === 1 ? "" : "s"}.${alarm}${starving}` + (during ? " " + during : ""));
+      render();
+    }
+
+    // Typing the number of turns to sleep
+    function sleepKey(e) {
+      if (/^[0-9]$/.test(e.key) && pending.number.length < 3) {
+        pending.number = (pending.number + e.key).replace(/^0+/, "");
+      } else if (e.key === "Backspace") {
+        pending.number = pending.number.slice(0, -1);
+      } else if (e.key === "Escape") {
+        pending = null;
+        say("");
+        return;
+      } else if (e.key === "Enter") {
+        const n = Number(pending.number);
+        if (n >= 1 && n <= MAX_SLEEP) {
+          pending = null;
+          sleep(n);
+          return;
+        }
+        say(pending.question + pending.number + `  (enter 1-${MAX_SLEEP})`);
+        return;
+      }
+      say(pending.question + pending.number);
+    }
+
+    // Y does the pending action (which takes a turn); N cancels
+    function answer(yes) {
+      const action = pending;
+      pending = null;
+      if (!yes) { say(""); return; }
+      if (action.act()) {
+        endTurn();
+        render();
+      }
+    }
+
+    document.addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+      if (busy) { e.preventDefault(); return; } // something is mid-flight
+      if (dead) {
+        if (e.key === "Enter") location.reload(); // back to the title screen
+        return;
+      }
+      // While asking how long to sleep, keys go to the number
+      // Choosing what to throw, and which way
+      if (pending && pending.onKey) {
+        e.preventDefault();
+        pending.onKey(e);
+        return;
+      }
+      if (pending && "number" in pending) {
+        e.preventDefault();
+        sleepKey(e);
+        return;
+      }
+      // While a question is up, only Y / N (or Escape) do anything
+      if (pending) {
+        if (k === "y") answer(true);
+        else if (k === "n" || k === "escape") answer(false);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && k === "s") { e.preventDefault(); saveGame(); return; }
+      if (k === "i") { interact(); return; }
+      if (k === "g") { pickUp(); return; }
+      if (k === "t") { startThrow(); return; }
+      if (k === "f") { eat(); return; }
+      if (k === "r") { openCrafting(); return; }
+      if (k === "x") { startEquip(); return; }
+      if (k === "o") { startDon(); return; }
+      if (k === "b") { startShoot(); return; }
+      const dir = DIRS[k];
+      if (dir) {
+        say("");
+        e.preventDefault();
+        move(dir.dx, dir.dy);
+      } else if (e.key === "-" || e.key === "_") {
+        setZoom(zoom + 1);
+      } else if (e.key === "=" || e.key === "+") {
+        setZoom(zoom - 1);
+      }
+    });
+
+    // ---- Saving ----
+    // One save slot, kept in this browser's local storage
+    function saveGame() {
+      const data = {
+        version: SAVE_VERSION,
+        savedAt: Date.now(),
+        map: map.map(row => row.join("")),
+        seen: seen.map(row => row.map(v => (v ? "1" : "0")).join("")),
+        player: { ...player },
+        mobs: mobs.map(m => ({ ...m })),
+        items: items.map(i => ({ ...i })),
+        inventory: { ...inventory },
+        equipped,
+        worn,
+        offhand,
+        exitDoor,
+        torches: torches.map(t => ({ ...t })),
+        fires: fires.map(f => ({ ...f })),
+        stats: { ...stats },
+        zoom,
+        depth,
+        otherLevels: Object.fromEntries(Object.entries(levels).map(([d, L]) => [d, packLevel(L)])),
+      };
+      try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+        say("Game saved.");
+      } catch (err) {
+        say("Couldn't save the game in this browser.");
+      }
+    }
+    const saveBtn = document.getElementById("save-btn");
+    saveBtn.addEventListener("click", () => { saveGame(); saveBtn.blur(); });
+
+    // ---- On-screen controls ----
+    // Every button presses a key, so they work exactly like the keyboard
+    // (including answering questions and aiming throws).
+    const touchEl = document.getElementById("touch");
+    touchEl.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      b.blur();
+      if (b.dataset.action === "save") saveGame();
+      else if (b.dataset.key && !("repeat" in b.dataset)) pressKey(b.dataset.key);
+    });
+    // Arrow buttons step once when pressed, then keep walking while held
+    let holdTimer = null;
+    const stopHold = () => {
+      clearTimeout(holdTimer); clearInterval(holdTimer); holdTimer = null;
+      touchEl.querySelectorAll(".held").forEach(b => b.classList.remove("held"));
+    };
+    touchEl.addEventListener("pointerdown", (e) => {
+      const b = e.target.closest("button[data-repeat]");
+      if (!b) return;
+      e.preventDefault();
+      stopHold();
+      b.classList.add("held");
+      pressKey(b.dataset.key);
+      holdTimer = setTimeout(() => {
+        holdTimer = setInterval(() => { if (!pending) pressKey(b.dataset.key); }, 150);
+      }, 350);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(t => touchEl.addEventListener(t, stopHold));
+
+    // Tap (or click) the map to step one tile toward that spot (or aim a throw).
+    // Tapping yourself picks up what's there.
+    mapEl.addEventListener("click", (e) => {
+      if (dead) return;
+      const tile = parseFloat(mapEl.style.fontSize) * 1.2;
+      const box = mapEl.getBoundingClientRect();
+      const cs = getComputedStyle(mapEl);
+      const col = Math.floor((e.clientX - box.left - parseFloat(cs.paddingLeft)) / tile);
+      const row = Math.floor((e.clientY - box.top - parseFloat(cs.paddingTop)) / tile);
+      const dx = Math.sign(col - Math.floor(VIEW_W / 2));
+      const dy = Math.sign(row - Math.floor(VIEW_H / 2));
+      if (!dx && !dy) { if (!pending) pressKey("g"); return; }
+      const key = Object.keys(DIRS).find(k => DIRS[k].dx === dx && DIRS[k].dy === dy);
+      pressKey(key);
+    });
+
+    // Show the on-screen controls on touch screens, or when switched on
+    const CONTROLS_KEY = "cave-hack-controls";
+    let touchUi;
+    try { touchUi = localStorage.getItem(CONTROLS_KEY); } catch (err) { touchUi = null; }
+    touchUi = touchUi === null ? window.matchMedia("(pointer: coarse)").matches : touchUi === "on";
+    const applyControls = () => { document.body.classList.toggle("touch-ui", touchUi); fitMap(); };
+    const controlsBtn = document.getElementById("controls-btn");
+    controlsBtn.addEventListener("click", () => {
+      touchUi = !touchUi;
+      try { localStorage.setItem(CONTROLS_KEY, touchUi ? "on" : "off"); } catch (err) { /* not saved; fine */ }
+      controlsBtn.blur();
+      applyControls();
+    });
+    applyControls();
+
+    // Mouse wheel over the map zooms too
+    mapEl.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      if (busy) return;
+      setZoom(zoom + (e.deltaY > 0 ? 1 : -1));
+    }, { passive: false });
+
+    setZoom(save ? save.zoom : DEFAULT_ZOOM);
+  }
+
+  // ---- Installable / offline web app ----
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("sw.js").catch(() => { /* still playable online */ });
+  }
+
+  // ---- Title screen ----
+  document.getElementById("menu-art").innerHTML = cavemanSprite("down", null);
+  const SAVE_KEY = "cave-hack-save";
+  const SAVE_VERSION = 1;
+
+  function loadSave() {
+    try {
+      const data = JSON.parse(localStorage.getItem(SAVE_KEY));
+      return data && data.version === SAVE_VERSION ? data : null;
+    } catch (err) {
+      return null; // no storage, or nothing usable saved
+    }
+  }
+
+  const menuEl = document.getElementById("menu");
+  const introEl = document.getElementById("intro");
+  const newBtn = document.getElementById("new-game");
+  const loadBtn = document.getElementById("load-game");
+  const show = (els, visible) => els.forEach(el => el.classList.toggle("hidden", !visible));
+  const gameEls = [...document.querySelectorAll(".game")];
+
+  const saved = loadSave();
+  if (saved) {
+    loadBtn.innerHTML = "<kbd>P</kbd> Play Saved Game";
+    loadBtn.title = "Saved " + new Date(saved.savedAt).toLocaleString();
+  } else {
+    loadBtn.disabled = true;
+    loadBtn.textContent = "No Saved Game";
+  }
+
+  let screen = "menu"; // "menu" -> "intro" -> "game"
+  const setScreen = (name) => { screen = name; document.body.dataset.screen = name; };
+  setScreen("menu");
+  function enterGame(save) {
+    setScreen("game");
+    show([menuEl, introEl], false);
+    show(gameEls, true);
+    startGame(save);
+  }
+  function newGame() {
+    setScreen("intro");
+    show([menuEl], false);
+    show([introEl], true);
+  }
+  function playSaved() {
+    if (saved) enterGame(saved);
+  }
+
+  // (stopPropagation so the click that opens the story doesn't also skip it)
+  newBtn.addEventListener("click", (e) => { e.stopPropagation(); newGame(); });
+  loadBtn.addEventListener("click", (e) => { e.stopPropagation(); playSaved(); });
+  // Tap (or click, or press any key) anywhere on the story screen to start playing
+  document.addEventListener("click", () => { if (screen === "intro") enterGame(null); });
+  document.addEventListener("keydown", (e) => {
+    if (screen === "menu") {
+      if (e.key.toLowerCase() === "n") newGame();
+      else if (e.key.toLowerCase() === "p") playSaved();
+    } else if (screen === "intro") {
+      e.preventDefault();
+      enterGame(null);
+    }
+  });
+  newBtn.focus();
+</script>
+</body>
+</html>
